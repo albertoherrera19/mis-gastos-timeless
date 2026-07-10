@@ -44,7 +44,7 @@ const EYEBROW_DEFAULT = 'Timeless · Control personal';
 // ---------- Sincronización con Google Sheets (opcional) ----------
 // URL del Web App de Apps Script (termina en /exec). Mientras esté el texto
 // de relleno, la app funciona exactamente igual que siempre: solo localStorage.
-const SHEETS_WEBHOOK_URL = 'PEGA_AQUI_TU_URL_DE_APPS_SCRIPT';
+const SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyrBdHPotM_u1YiXfc3glhlz3aIZM6_GYsPxl4YLFAQeUpzla17j5YGRspCkd7cRix_/exec';
 const SHEETS_PENDING_KEY = 'timeless_sheets_pending';
 
 // Temas "neutros": solo cambian fondo/tarjetas, conservan el ultimo acento elegido.
