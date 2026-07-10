@@ -325,6 +325,55 @@ input[type="text"]::placeholder{color:var(--muted);}
   font-weight:700;
 }
 
+/* ---- Grupos de categorías (filtro pantalla principal) ---- */
+.cat-groups{
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  padding:6px 20px 2px;
+  margin-top:22px;
+  -webkit-overflow-scrolling:touch;
+}
+.cat-groups::-webkit-scrollbar{display:none;}
+.cg-tab{
+  flex:0 0 auto;
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+  padding:7px 13px;
+  border-radius:20px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.cg-tab.active{
+  background:var(--accent-dim);
+  border-color:var(--accent);
+  color:var(--bone);
+}
+.cg-tab.cg-add{color:var(--accent);border-style:dashed;}
+.cg-edit-link{
+  margin:6px 20px 0;
+  font-size:11px;
+  color:var(--muted);
+}
+.cg-edit-link:empty{display:none;}
+.cg-edit-link button{
+  background:none;border:none;color:var(--accent);
+  font-size:11px;font-weight:700;cursor:pointer;padding:2px 4px;
+}
+.cg-cats-title{
+  font-size:11px;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);font-weight:700;margin:4px 0 10px;
+}
+.group-page .cats{grid-template-columns:repeat(4,1fr);}
+.group-delete-btn{
+  width:100%;background:none;border:1px solid var(--line);
+  color:var(--muted);border-radius:10px;padding:12px;
+  font-size:13px;font-weight:700;cursor:pointer;margin-top:10px;
+}
+
 .breakdown{
   margin:0 20px;
   background:var(--card);

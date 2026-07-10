@@ -39,6 +39,10 @@ const CUSTOM_CAT_KEY = 'timeless_custom_categories';
 const ACCENT_THEME_KEY = 'timeless_accent_theme';
 const CAT_COLOR_KEY = 'timeless_category_colors';
 const BUDGET_KEY = 'timeless_category_budgets';
+const GROUPS_KEY = 'timeless_cat_groups';
+// En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
+// (En el repo de amigos este flag va en false — diferencia intencional.)
+const PRECREATE_GROUPS = true;
 const EYEBROW_KEY = 'timeless_eyebrow_text';
 const EYEBROW_DEFAULT = 'Timeless · Control personal';
 
@@ -119,7 +123,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY];
 
 function exportBackup(){
   const data = {};
@@ -386,7 +390,147 @@ function flushSheetsQueue(){
 
 window.addEventListener('online', flushSheetsQueue);
 
+/* ---------- Grupos de categorías (filtro pantalla principal) ---------- */
+let catGroups = [];        // [{id, name, cats:[catIds]}]
+let activeGroup = null;    // null = Predeterminado (todas)
+
+function defaultGroups(){
+  const otras = allCategories().map(c=>c.id).filter(id=> id!=='ads' && id!=='inversion');
+  return [
+    {id:'g_timeless', name:'Timeless', cats:['ads','inversion']},
+    {id:'g_personal', name:'Personal', cats:otras}
+  ];
+}
+function loadCatGroups(){
+  let stored = null;
+  try{ stored = JSON.parse(localStorage.getItem(GROUPS_KEY)); }catch(e){ stored = null; }
+  if(Array.isArray(stored)){
+    catGroups = stored;
+  } else {
+    // Primera vez: pre-crear grupos por defecto solo si corresponde a esta app.
+    catGroups = PRECREATE_GROUPS ? defaultGroups() : [];
+    saveCatGroups();
+  }
+}
+function saveCatGroups(){
+  try{ localStorage.setItem(GROUPS_KEY, JSON.stringify(catGroups)); }catch(e){}
+}
+// Categorías del grupo activo (o null = todas).
+function activeGroupCats(){
+  if(!activeGroup) return null;
+  const g = catGroups.find(x=>x.id === activeGroup);
+  return g ? g.cats : null;
+}
+// Filtra una lista de gastos por el grupo activo.
+function applyGroupFilter(list){
+  const gc = activeGroupCats();
+  return gc ? list.filter(e=> gc.indexOf(e.category) !== -1) : list;
+}
+
+// Pestañas de grupos + link de editar el grupo activo.
+function renderCatGroups(){
+  const box = document.getElementById('catGroups');
+  if(!box) return;
+  let html = '<button class="cg-tab' + (!activeGroup ? ' active' : '') + '" data-g="">Predeterminado</button>';
+  catGroups.forEach(g=>{
+    html += '<button class="cg-tab' + (activeGroup === g.id ? ' active' : '') + '" data-g="' + g.id + '">' + g.name + '</button>';
+  });
+  html += '<button class="cg-tab cg-add" data-g="__add">+ Grupo</button>';
+  box.innerHTML = html;
+  box.querySelectorAll('.cg-tab').forEach(t=>{
+    t.onclick = ()=>{
+      const g = t.getAttribute('data-g');
+      if(g === '__add'){ openGroupEditor(null); return; }
+      activeGroup = g || null;
+      renderCatGroups();
+      renderMonthTotal(); renderDonut(); renderBreakdown();
+    };
+  });
+  // Link de editar (solo cuando hay un grupo custom activo)
+  const link = document.getElementById('cgEditLink');
+  if(link){
+    const g = activeGroup ? catGroups.find(x=>x.id === activeGroup) : null;
+    if(g){
+      link.innerHTML = '<button type="button">✏️ Editar "' + g.name + '"</button>';
+      link.querySelector('button').onclick = ()=> openGroupEditor(g.id);
+    } else {
+      link.innerHTML = '';
+    }
+  }
+}
+
+/* ----- Editor de grupo (crear/editar, página completa) ----- */
+let editingGroupId = null;
+let groupSelCats = [];
+
+function renderGroupCatGrid(){
+  const grid = document.getElementById('groupCatGrid');
+  grid.innerHTML = '';
+  allCategories().forEach(cat=>{
+    const sel = groupSelCats.indexOf(cat.id) !== -1;
+    const btn = document.createElement('div');
+    btn.className = 'cat-btn' + (sel ? ' selected' : '');
+    btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
+    btn.onclick = ()=>{
+      const i = groupSelCats.indexOf(cat.id);
+      if(i === -1) groupSelCats.push(cat.id); else groupSelCats.splice(i,1);
+      renderGroupCatGrid();
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function openGroupEditor(gid){
+  editingGroupId = gid;
+  const g = gid ? catGroups.find(x=>x.id === gid) : null;
+  document.getElementById('groupPageTitle').textContent = g ? 'Editar grupo' : 'Nuevo grupo';
+  document.getElementById('groupName').value = g ? g.name : '';
+  groupSelCats = g ? g.cats.slice() : [];
+  document.getElementById('groupDeleteBtn').style.display = g ? '' : 'none';
+  renderGroupCatGrid();
+  const page = document.getElementById('groupPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+}
+
+function closeGroupEditor(){
+  const page = document.getElementById('groupPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+  editingGroupId = null;
+}
+
+function saveGroup(){
+  const name = document.getElementById('groupName').value.trim() || 'Grupo';
+  if(groupSelCats.length === 0){ alert('Elige al menos una categoría para el grupo.'); return; }
+  if(editingGroupId){
+    const g = catGroups.find(x=>x.id === editingGroupId);
+    if(g){ g.name = name; g.cats = groupSelCats.slice(); }
+  } else {
+    const id = 'grp_' + Date.now();
+    catGroups.push({id:id, name:name, cats:groupSelCats.slice()});
+    activeGroup = id;
+  }
+  saveCatGroups();
+  closeGroupEditor();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+}
+
+function deleteGroup(){
+  if(!editingGroupId) return;
+  if(!window.confirm('¿Eliminar este grupo? (no borra tus gastos, solo el filtro)')) return;
+  catGroups = catGroups.filter(x=>x.id !== editingGroupId);
+  if(activeGroup === editingGroupId) activeGroup = null;
+  saveCatGroups();
+  closeGroupEditor();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+}
+
 function renderAll(){
+  renderCatGroups();
   renderMonthTotal();
   renderDonut();
   renderBreakdown();
@@ -403,7 +547,7 @@ function currentMonthExpenses(){
 }
 
 function renderMonthTotal(){
-  const monthExp = currentMonthExpenses();
+  const monthExp = applyGroupFilter(currentMonthExpenses());
   const total = monthExp.reduce((s,e)=>s+e.amount,0);
   const s = fmt(total);
   document.getElementById('monthValue').textContent = s;
@@ -419,7 +563,7 @@ function renderMonthTotal(){
 
 // Totales por categoría del mes actual (ordenados desc)
 function currentMonthByCategory(){
-  const monthExp = currentMonthExpenses();
+  const monthExp = applyGroupFilter(currentMonthExpenses());
   const totals = {};
   monthExp.forEach(e=>{ totals[e.category] = (totals[e.category]||0) + e.amount; });
   const grandTotal = Object.values(totals).reduce((a,b)=>a+b,0);
@@ -1232,6 +1376,9 @@ function saveEditExpense(){
 
 document.getElementById('editBack').addEventListener('click', closeEditExpense);
 document.getElementById('editSaveBtn').addEventListener('click', saveEditExpense);
+document.getElementById('groupBack').addEventListener('click', closeGroupEditor);
+document.getElementById('groupSaveBtn').addEventListener('click', saveGroup);
+document.getElementById('groupDeleteBtn').addEventListener('click', deleteGroup);
 document.getElementById('editAmount').addEventListener('input', validateEditForm);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && document.getElementById('editPage').classList.contains('open')) closeEditExpense();
@@ -1291,6 +1438,7 @@ try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 loadCategoryColors();
 loadCategoryBudgets();
+loadCatGroups();
 renderCats();
 loadExpenses();
 flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes

@@ -70,6 +70,9 @@
   <button class="save-btn" id="saveBtn" disabled>Agregar gasto</button>
 </div>
 
+<div class="cat-groups" id="catGroups"></div>
+<div class="cg-edit-link" id="cgEditLink"></div>
+
 <div class="section-title">Por categoría</div>
 <div class="donut-card" id="donutCard">
   <div class="donut-wrap">
@@ -148,6 +151,21 @@
     </label>
     <div class="cats" id="editCatGrid"></div>
     <button class="save-btn" id="editSaveBtn">Guardar cambios</button>
+  </div>
+</div>
+
+<!-- Página completa para CREAR/EDITAR un grupo de categorías -->
+<div class="cat-detail-page group-page" id="groupPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="groupBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title" id="groupPageTitle">Nuevo grupo</span></div>
+  </div>
+  <div class="edit-card">
+    <input type="text" id="groupName" placeholder="Nombre del grupo — ej: Timeless">
+    <div class="cg-cats-title">Categorías del grupo</div>
+    <div class="cats" id="groupCatGrid"></div>
+    <button class="save-btn" id="groupSaveBtn">Guardar grupo</button>
+    <button class="group-delete-btn" id="groupDeleteBtn" type="button">Eliminar grupo</button>
   </div>
 </div>
 
