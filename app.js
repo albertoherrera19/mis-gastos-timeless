@@ -19,6 +19,9 @@ const THEMES = {
   verde:   {label:'Verde',   bg:'#0f1a11', card:'#16261a', line:'#26402c', bone:'#eefaf0', muted:'#8fb897', accent:'#4ade80', accentDim:'#1c4d2c', chip:'#101c13', swatch:'#4ade80'},
   turquesa:{label:'Turquesa',bg:'#08201f', card:'#0e2c2a', line:'#1d443f', bone:'#e9faf7', muted:'#7db8ae', accent:'#1de9b6', accentDim:'#0c4d43', chip:'#0a2321', swatch:'#1de9b6'},
   naranja: {label:'Naranja', bg:'#1f130a', card:'#2c1c0e', line:'#472c15', bone:'#faf0e6', muted:'#c9986b', accent:'#f5851f', accentDim:'#5c360f', chip:'#20140a', swatch:'#f5851f'},
+  amarillo:{label:'Amarillo',bg:'#1c1808', card:'#282011', line:'#43371a', bone:'#faf6e6', muted:'#c7b071', accent:'#f5c518', accentDim:'#5c4810', chip:'#1e1a0a', swatch:'#f5c518'},
+  gris:    {label:'Gris',    bg:'#16181c', card:'#20242b', line:'#333a44', bone:'#eef1f5', muted:'#8a94a3', accent:'#aab4c2', accentDim:'#3a424e', chip:'#181b20', swatch:'#aab4c2'},
+  marino:  {label:'Azul Marino', bg:'#080c1a', card:'#0f1730', line:'#1e2a52', bone:'#e9eefc', muted:'#7b88b5', accent:'#3b56f0', accentDim:'#16205c', chip:'#0a0f22', swatch:'#3b56f0'},
   blanco:  {label:'Blanco',  bg:'#f7f5f1', card:'#ffffff', line:'#e3e0d8', bone:'#181614', muted:'#8a8680', accent:'#e8442c', accentDim:'#fbdad4', chip:'#efece6', swatch:'#ffffff'},
 };
 
@@ -120,6 +123,7 @@ function renderSwatches(activeName){
 document.getElementById('gearBtn').addEventListener('click', ()=>{
   document.getElementById('themeDrawer').classList.toggle('open');
 });
+document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsSync);
 
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
@@ -391,6 +395,30 @@ function flushSheetsQueue(){
 
 window.addEventListener('online', flushSheetsQueue);
 
+// Aviso breve tipo "toast" que aparece y se desvanece solo.
+function showToast(msg, kind){
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.className = 'toast show' + (kind ? ' ' + kind : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>{ t.className = 'toast'; }, 2600);
+}
+
+// Botón 💾: fuerza el envío de lo pendiente a Google Sheets.
+function manualSheetsSync(){
+  if(!sheetsSyncEnabled()){
+    showToast('Google Sheets no está configurado', 'err');
+    return;
+  }
+  if(typeof navigator !== 'undefined' && navigator.onLine === false){
+    showToast('Sin conexión, intenta de nuevo', 'err');
+    return;
+  }
+  flushSheetsQueue();
+  showToast('✓ Guardado en Google Sheets', 'ok');
+}
+
 /* ---------- Grupos de categorías (filtro pantalla principal) ---------- */
 let catGroups = [];        // [{id, name, cats:[catIds]}]
 let activeGroup = null;    // null = Predeterminado (todas)
@@ -422,10 +450,35 @@ function activeGroupCats(){
   const g = catGroups.find(x=>x.id === activeGroup);
   return g ? g.cats : null;
 }
-// Filtra una lista de gastos por el grupo activo.
+// Filtra una lista de gastos por el grupo activo: incluye los de categorías del
+// grupo Y los gastos individuales etiquetados manualmente con ese grupo.
 function applyGroupFilter(list){
-  const gc = activeGroupCats();
-  return gc ? list.filter(e=> gc.indexOf(e.category) !== -1) : list;
+  if(!activeGroup) return list;
+  const g = catGroups.find(x=>x.id === activeGroup);
+  const cats = g ? g.cats : [];
+  return list.filter(e=> cats.indexOf(e.category) !== -1 || e.group === activeGroup);
+}
+
+// Pills de "Grupo (opcional)" en un formulario (agregar/editar).
+function renderGroupTagOpts(optsId, rowId, current, onPick){
+  const row = document.getElementById(rowId);
+  const box = document.getElementById(optsId);
+  if(!row || !box) return;
+  if(catGroups.length === 0){ row.classList.add('hidden'); box.innerHTML = ''; return; }
+  row.classList.remove('hidden');
+  let html = '<div class="gt-opt' + (!current ? ' selected' : '') + '" data-g="">Ninguno</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (current === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=> onPick(el.getAttribute('data-g') || null);
+  });
+}
+
+let selectedGroupTag = null;   // etiqueta de grupo del formulario de agregar
+function renderAddGroupTag(){
+  renderGroupTagOpts('groupTagOpts', 'groupTagRow', selectedGroupTag, (g)=>{ selectedGroupTag = g; renderAddGroupTag(); });
 }
 
 // Pestañas de grupos + link de editar el grupo activo.
@@ -458,6 +511,7 @@ function renderCatGroups(){
       link.innerHTML = '';
     }
   }
+  renderAddGroupTag(); // mantener el selector de grupo del formulario al día
 }
 
 /* ----- Editor de grupo (crear/editar, página completa) ----- */
@@ -900,12 +954,21 @@ function initCdZoom(){
   if(cdSlotMax < cdSlotMin) cdSlotMax = cdSlotMin;
   cdSlotBase = Math.min(Math.max(base, cdSlotMin), cdSlotMax);
   setCdSlot(cdSlotBase);
-  // Siempre iniciar mostrando desde el día 1 (extremo izquierdo).
-  // Se fuerza en varios momentos porque el navegador puede reposicionar
-  // el scroll después del primer layout.
-  graph.scrollLeft = 0;
-  requestAnimationFrame(()=>{ graph.scrollLeft = 0; });
-  setTimeout(()=>{ graph.scrollLeft = 0; }, 120);
+  // Iniciar mostrando la barra del PRIMER día con gasto pegada al borde izquierdo
+  // (no el día 1). Se fuerza en varios momentos porque el navegador puede
+  // reposicionar el scroll después del primer layout.
+  scrollGraphToFirstDay();
+  requestAnimationFrame(scrollGraphToFirstDay);
+  setTimeout(scrollGraphToFirstDay, 120);
+}
+
+// Alinea el gráfico para que la primera barra (día más antiguo con gasto)
+// quede cerca del borde izquierdo del contenedor visible.
+function scrollGraphToFirstDay(){
+  const graph = document.getElementById('cdGraph');
+  if(!graph) return;
+  const firstCol = document.querySelector('#cdGraphInner .cd-vcol');
+  graph.scrollLeft = firstCol ? Math.max(0, firstCol.offsetLeft - 12) : 0;
 }
 let cdSlotBase = 46;
 
@@ -1016,8 +1079,9 @@ function applyCdAccent(catId){
   const page = document.getElementById('catDetailPage');
   const hex = categoryColorHex(catId);
   page.style.setProperty('--cd-accent', hex);
-  const dot = document.getElementById('cdColorDot');
-  if(dot) dot.style.background = hex;
+  // El engranaje de ajustes de la categoría se pinta con su color.
+  const gear = document.getElementById('cdGearIcon');
+  if(gear) gear.style.color = hex;
 }
 function renderCdColorSwatches(catId){
   const box = document.getElementById('cdColorSwatches');
@@ -1267,8 +1331,9 @@ function renderFeed(){
       });
     });
   } else {
-    // Predeterminado: orden de inserción real (lo último agregado, arriba), sin límite.
-    const ordered = [...base].reverse();
+    // Predeterminado: por fecha (más reciente arriba). "Más antiguo": fecha ascendente.
+    const ordered = [...base].sort((a,b)=> new Date(b.date) - new Date(a.date));
+    if(feedSortMode === 'oldest') ordered.reverse();
     feed.innerHTML = ordered.map(txHtml).join('');
   }
 
@@ -1277,6 +1342,7 @@ function renderFeed(){
     btn.onclick = (ev)=>{
       ev.stopPropagation();
       const id = btn.getAttribute('data-id');
+      if(!window.confirm('¿Seguro que quieres borrar este gasto?')) return;
       expenses = expenses.filter(e=>e.id !== id);
       saveExpenses();
       renderAll();
@@ -1351,6 +1417,10 @@ function jumpToExpense(id){
 /* ---------- Editar un gasto existente (página completa) ---------- */
 let editingId = null;
 let editSelectedCat = null;
+let editSelectedGroup = null;
+function renderEditGroupTag(){
+  renderGroupTagOpts('editGroupTagOpts', 'editGroupTagRow', editSelectedGroup, (g)=>{ editSelectedGroup = g; renderEditGroupTag(); });
+}
 
 function renderEditCats(){
   const grid = document.getElementById('editCatGrid');
@@ -1381,7 +1451,9 @@ function openEditExpense(id){
   const di = document.getElementById('editDate');
   di.value = localISO;
   di.max = new Date().toISOString().slice(0,10);
+  editSelectedGroup = e.group || null;
   renderEditCats();
+  renderEditGroupTag();
   validateEditForm();
   const page = document.getElementById('editPage');
   page.classList.add('open');
@@ -1406,6 +1478,7 @@ function saveEditExpense(){
   e.amount = amount;
   e.note = document.getElementById('editNote').value.trim();
   e.category = editSelectedCat;
+  if(editSelectedGroup) e.group = editSelectedGroup; else delete e.group;
   const dv = document.getElementById('editDate').value;
   if(dv){ const dd = new Date(dv + 'T12:00:00'); if(!isNaN(dd.getTime())) e.date = dd.toISOString(); }
   saveExpenses();
@@ -1617,6 +1690,7 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
     note: note,
     date: resolveGastoDate()
   };
+  if(selectedGroupTag) gasto.group = selectedGroupTag;
   expenses.push(gasto);
 
   saveExpenses();
@@ -1626,6 +1700,7 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
   document.getElementById('noteInput').value = '';
   document.getElementById('dateInput').value = '';
   selectedCat = null;
+  selectedGroupTag = null;
   renderCats();
   validateForm();
   renderAll();
