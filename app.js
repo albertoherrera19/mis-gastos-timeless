@@ -47,6 +47,8 @@ const RECURRING_KEY = 'timeless_recurring';
 const GENERAL_BUDGET_KEY = 'timeless_general_budget';
 const GROUP_BUDGET_KEY = 'timeless_group_budgets';
 const REMINDERS_KEY = 'timeless_reminders';
+const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
+const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -63,7 +65,31 @@ const SHEETS_PENDING_KEY = 'timeless_sheets_pending';
 const NEUTRAL_THEMES = ['negro', 'blanco'];
 let lastAccentTheme = 'azul';
 
-function allCategories(){ return BASE_CATEGORIES.concat(customCategories); }
+let catOverrides = {};   // {catId: {name, icon}} — ediciones sobre categorías base o personalizadas
+let deletedBaseCats = []; // ids de BASE_CATEGORIES que el usuario eliminó en este dispositivo
+
+function loadCatOverrides(){
+  try{ catOverrides = JSON.parse(localStorage.getItem(CAT_OVERRIDE_KEY)) || {}; }
+  catch(e){ catOverrides = {}; }
+}
+function saveCatOverrides(){
+  try{ localStorage.setItem(CAT_OVERRIDE_KEY, JSON.stringify(catOverrides)); }catch(e){}
+}
+function loadDeletedBaseCats(){
+  try{ deletedBaseCats = JSON.parse(localStorage.getItem(DELETED_BASE_KEY)) || []; }
+  catch(e){ deletedBaseCats = []; }
+}
+function saveDeletedBaseCats(){
+  try{ localStorage.setItem(DELETED_BASE_KEY, JSON.stringify(deletedBaseCats)); }catch(e){}
+}
+
+function allCategories(){
+  const base = BASE_CATEGORIES.filter(c => deletedBaseCats.indexOf(c.id) === -1);
+  return base.concat(customCategories).map(c=>{
+    const ov = catOverrides[c.id];
+    return ov ? Object.assign({}, c, ov) : c;
+  });
+}
 function catById(id){ return allCategories().find(c=>c.id===id); }
 function fmt(n){ return Number(n).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 
@@ -131,7 +157,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -243,6 +269,8 @@ function saveCustomCategories(){
   }catch(e){}
 }
 
+let catFormEditId = null; // null = modo crear categoría; id = editando esa categoría
+
 function renderCats(){
   const grid = document.getElementById('catGrid');
   grid.innerHTML = '';
@@ -254,32 +282,44 @@ function renderCats(){
     // Toggle: un toque selecciona, otro toque sobre la misma la deselecciona.
     btn.onclick = ()=>{ selectedCat = (selectedCat === cat.id) ? null : cat.id; renderCats(); validateForm(); };
 
-    if(!cat.base){
-      const del = document.createElement('div');
-      del.className = 'cat-del';
-      del.textContent = '✕';
-      del.onclick = (ev)=>{
-        ev.stopPropagation();
-        // Confirmación antes de borrar; si tiene gastos, ofrecer moverlos a "Otros".
-        const catExpenses = expenses.filter(e=>e.category === cat.id);
-        if(catExpenses.length > 0){
-          const ok = window.confirm('⚠️ "' + cat.name + '" tiene ' + catExpenses.length + ' gasto(s) registrado(s).\n\nAceptar: eliminar la categoría y mover esos gastos a "Otros" (no se pierden).\nCancelar: no borrar nada.');
-          if(!ok) return;
-          expenses.forEach(e=>{ if(e.category === cat.id) e.category = 'otros'; });
-          saveExpenses();
-        } else {
-          const ok = window.confirm('¿Eliminar la categoría "' + cat.name + '"?');
-          if(!ok) return;
-        }
+    const edit = document.createElement('div');
+    edit.className = 'cat-edit';
+    edit.textContent = '✎';
+    edit.onclick = (ev)=>{ ev.stopPropagation(); openCatForm(cat); };
+    btn.appendChild(edit);
+
+    const del = document.createElement('div');
+    del.className = 'cat-del';
+    del.textContent = '✕';
+    del.onclick = (ev)=>{
+      ev.stopPropagation();
+      // "Otros" es el destino de respaldo para gastos reasignados: no se puede borrar.
+      if(cat.id === 'otros'){ alert('"Otros" no se puede eliminar: es la categoría de respaldo para gastos reasignados.'); return; }
+      // Confirmación antes de borrar; si tiene gastos, ofrecer moverlos a "Otros".
+      const catExpenses = expenses.filter(e=>e.category === cat.id);
+      if(catExpenses.length > 0){
+        const ok = window.confirm('⚠️ "' + cat.name + '" tiene ' + catExpenses.length + ' gasto(s) registrado(s).\n\nAceptar: eliminar la categoría y mover esos gastos a "Otros" (no se pierden).\nCancelar: no borrar nada.');
+        if(!ok) return;
+        expenses.forEach(e=>{ if(e.category === cat.id) e.category = 'otros'; });
+        saveExpenses();
+      } else {
+        const ok = window.confirm('¿Eliminar la categoría "' + cat.name + '"?');
+        if(!ok) return;
+      }
+      if(cat.base){
+        if(deletedBaseCats.indexOf(cat.id) === -1) deletedBaseCats.push(cat.id);
+        saveDeletedBaseCats();
+        if(catOverrides[cat.id]){ delete catOverrides[cat.id]; saveCatOverrides(); }
+      } else {
         customCategories = customCategories.filter(c=>c.id !== cat.id);
-        if(selectedCat === cat.id) selectedCat = null;
         saveCustomCategories();
-        renderCats();
-        validateForm();
-        renderAll(); // refleja los gastos movidos a "Otros"
-      };
-      btn.appendChild(del);
-    }
+      }
+      if(selectedCat === cat.id) selectedCat = null;
+      renderCats();
+      validateForm();
+      renderAll(); // refleja los gastos movidos a "Otros"
+    };
+    btn.appendChild(del);
 
     grid.appendChild(btn);
   });
@@ -287,36 +327,71 @@ function renderCats(){
   const addBtn = document.createElement('div');
   addBtn.className = 'cat-btn add-new';
   addBtn.innerHTML = '<span class="icon">➕</span>Nueva';
-  addBtn.onclick = ()=>{
-    document.getElementById('newCatForm').classList.add('open');
-    document.getElementById('newCatName').focus();
-  };
+  addBtn.onclick = ()=> openCatForm(null);
   grid.appendChild(addBtn);
 }
 
-document.getElementById('cancelNewCat').addEventListener('click', ()=>{
+function openCatForm(editCat){
+  const form = document.getElementById('newCatForm');
+  const nameInp = document.getElementById('newCatName');
+  const emojiInp = document.getElementById('newCatEmoji');
+  const confirmBtn = document.getElementById('confirmNewCat');
+  if(editCat){
+    catFormEditId = editCat.id;
+    nameInp.value = editCat.name;
+    emojiInp.value = editCat.icon;
+    confirmBtn.textContent = 'Guardar cambios';
+  } else {
+    catFormEditId = null;
+    nameInp.value = '';
+    emojiInp.value = '';
+    confirmBtn.textContent = 'Crear categoría';
+  }
+  form.classList.add('open');
+  nameInp.focus();
+}
+
+function closeCatForm(){
+  catFormEditId = null;
   document.getElementById('newCatForm').classList.remove('open');
   document.getElementById('newCatName').value = '';
   document.getElementById('newCatEmoji').value = '';
-});
+  document.getElementById('confirmNewCat').textContent = 'Crear categoría';
+}
+
+document.getElementById('cancelNewCat').addEventListener('click', closeCatForm);
 
 document.getElementById('confirmNewCat').addEventListener('click', ()=>{
   const name = document.getElementById('newCatName').value.trim();
   const emoji = document.getElementById('newCatEmoji').value.trim() || '🏷️';
   if(!name) return;
 
-  customCategories.push({
-    id: 'custom_' + Date.now(),
-    name: name,
-    icon: emoji,
-    base: false
-  });
+  if(catFormEditId){
+    const cat = allCategories().find(c=>c.id === catFormEditId);
+    if(cat && cat.base){
+      catOverrides[catFormEditId] = {name: name, icon: emoji};
+      saveCatOverrides();
+    } else {
+      const idx = customCategories.findIndex(c=>c.id === catFormEditId);
+      if(idx !== -1){
+        customCategories[idx].name = name;
+        customCategories[idx].icon = emoji;
+        saveCustomCategories();
+      }
+    }
+  } else {
+    customCategories.push({
+      id: 'custom_' + Date.now(),
+      name: name,
+      icon: emoji,
+      base: false
+    });
+    saveCustomCategories();
+  }
 
-  saveCustomCategories();
-  document.getElementById('newCatForm').classList.remove('open');
-  document.getElementById('newCatName').value = '';
-  document.getElementById('newCatEmoji').value = '';
+  closeCatForm();
   renderCats();
+  renderAll(); // refleja el nombre/ícono editado en otras vistas (donut, movimientos, etc.)
 });
 
 function validateForm(){
@@ -2062,6 +2137,8 @@ if(!THEMES[lastAccentTheme] || NEUTRAL_THEMES.indexOf(lastAccentTheme) !== -1){ 
 initEyebrow();
 try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
+loadCatOverrides();
+loadDeletedBaseCats();
 loadCategoryColors();
 loadCategoryBudgets();
 loadGeneralBudget();

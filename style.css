@@ -282,6 +282,24 @@ input[type="text"]::placeholder{color:var(--muted);}
   justify-content:center;
   z-index:2;
 }
+.cat-edit{
+  position:absolute;
+  top:-6px;
+  left:-6px;
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--muted);
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  font-size:9px;
+  line-height:1;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:2;
+}
 
 .new-cat-form{
   display:none;
