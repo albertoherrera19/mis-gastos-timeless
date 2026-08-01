@@ -55,6 +55,44 @@ h1{
   font-weight:800;
   letter-spacing:-0.02em;
 }
+.title-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.month-switch{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.month-switch-btn{
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--bone);
+  width:22px;
+  height:22px;
+  border-radius:7px;
+  font-size:13px;
+  line-height:1;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.month-switch-btn:disabled{
+  color:var(--muted);
+  opacity:.4;
+  cursor:not-allowed;
+}
+.month-switch-label{
+  font-size:11px;
+  font-weight:700;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  white-space:nowrap;
+}
 .month-total{
   margin-top:14px;
   font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
@@ -1055,6 +1093,7 @@ body.cd-open{overflow:hidden;}
   justify-content:flex-end;
   height:100%;
   gap:6px;
+  cursor:pointer;
 }
 .mbar .col{
   width:100%;
@@ -1096,6 +1135,7 @@ body.cd-open{overflow:hidden;}
   padding:8px 0;
   border-bottom:1px dashed var(--line);
   font-size:13px;
+  cursor:pointer;
 }
 .ml-row:last-child{border-bottom:none;}
 .ml-row.current .ml-name{color:var(--accent);font-weight:700;}

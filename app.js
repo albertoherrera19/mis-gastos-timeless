@@ -36,6 +36,8 @@ let expenses = [];
 let customCategories = [];
 let selectedCat = null;
 let activeDonutCat = null;
+let viewYear = new Date().getFullYear();  // mes que se está viendo en la pantalla principal
+let viewMonth = new Date().getMonth();    // (no siempre es el mes real de hoy: se puede navegar)
 const STORAGE_KEY = 'timeless_expenses_log';
 const THEME_KEY = 'timeless_expenses_theme';
 const CUSTOM_CAT_KEY = 'timeless_custom_categories';
@@ -699,6 +701,7 @@ function deleteGroup(){
 }
 
 function renderAll(){
+  renderMonthSwitch();
   renderCatGroups();
   renderMonthTotal();
   renderDonut();
@@ -708,10 +711,9 @@ function renderAll(){
 }
 
 function currentMonthExpenses(){
-  const now = new Date();
   return expenses.filter(e=>{
     const d = new Date(e.date);
-    return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+    return d.getMonth()===viewMonth && d.getFullYear()===viewYear;
   });
 }
 
@@ -726,11 +728,36 @@ function renderMonthTotal(){
     valEl.classList.toggle('compact', s.length > 9 && s.length <= 12);
     valEl.classList.toggle('mini', s.length > 12);
   }
-  const monthName = new Date().toLocaleDateString('es-PE', {month:'long'});
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('monthLabel').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
   renderMtBudgetPanel();
   renderMtBudgetBar(total);
 }
+
+// Etiqueta y flechas de navegación de mes, al costado de "Mis gastos".
+function renderMonthSwitch(){
+  const label = document.getElementById('monthSwitchLabel');
+  const nextBtn = document.getElementById('monthNextBtn');
+  if(!label || !nextBtn) return;
+  let full = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'});
+  full = full.charAt(0).toUpperCase() + full.slice(1);
+  label.textContent = full;
+  const now = new Date();
+  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+}
+
+document.getElementById('monthPrevBtn').addEventListener('click', ()=>{
+  viewMonth--;
+  if(viewMonth < 0){ viewMonth = 11; viewYear--; }
+  renderAll();
+});
+document.getElementById('monthNextBtn').addEventListener('click', ()=>{
+  const now = new Date();
+  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no se puede ir al futuro
+  viewMonth++;
+  if(viewMonth > 11){ viewMonth = 0; viewYear++; }
+  renderAll();
+});
 
 // Totales por categoría del mes actual (ordenados desc)
 function currentMonthByCategory(){
@@ -866,8 +893,7 @@ function renderBreakdown(){
 /* ---------- Detalle diario por categoría (página completa) ---------- */
 // Suma por día del mes actual, solo para una categoría.
 function dailyTotalsForCategory(catId){
-  const now = new Date();
-  const year = now.getFullYear(), month = now.getMonth();
+  const year = viewYear, month = viewMonth;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const totals = new Array(daysInMonth + 1).fill(0); // index 1..daysInMonth
   expenses.forEach(e=>{
@@ -1461,7 +1487,7 @@ function monthlySeries(){
 
   const series = [];
   const cur = new Date(earliest);
-  const currentKey = monthKey(now);
+  const selectedKey = monthKey(new Date(viewYear, viewMonth, 1)); // mes que se está viendo (resaltado)
   let guard = 0;
   while(cur <= now && guard < 240){
     const k = monthKey(cur);
@@ -1472,8 +1498,10 @@ function monthlySeries(){
       key:k,
       label:label,
       full:full,
+      year: cur.getFullYear(),
+      month: cur.getMonth(),
       total: totals[k] || 0,
-      current: k === currentKey
+      current: k === selectedKey
     });
     cur.setMonth(cur.getMonth()+1);
     guard++;
@@ -1491,7 +1519,7 @@ function renderMonths(){
   barsBox.innerHTML = series.map(s=>{
     const h = s.total > 0 ? Math.max((s.total/maxTotal*100), 4) : 2;
     const valLabel = s.total > 0 ? ('<span class="val">' + Math.round(s.total) + '</span>') : '';
-    return '<div class="mbar' + (s.current ? ' current' : '') + '">' +
+    return '<div class="mbar' + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
              '<div class="col" style="height:' + h + '%">' + valLabel + '</div>' +
              '<div class="mlbl">' + s.label + '</div>' +
            '</div>';
@@ -1499,11 +1527,24 @@ function renderMonths(){
 
   // Lista (más reciente primero)
   listBox.innerHTML = [...series].reverse().map(s=>{
-    return '<div class="ml-row' + (s.current ? ' current' : '') + '">' +
+    return '<div class="ml-row' + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
              '<span class="ml-name">' + s.full + '</span>' +
              '<span class="ml-amt">S/ ' + fmt(s.total) + '</span>' +
            '</div>';
   }).join('');
+
+  // Tocar una barra o una fila de la lista -> ver ese mes en la pantalla principal.
+  const selectMonth = (y, m)=>{
+    viewYear = y;
+    viewMonth = m;
+    renderAll();
+  };
+  barsBox.querySelectorAll('.mbar').forEach(el=>{
+    el.addEventListener('click', ()=> selectMonth(parseInt(el.getAttribute('data-year'), 10), parseInt(el.getAttribute('data-month'), 10)));
+  });
+  listBox.querySelectorAll('.ml-row').forEach(el=>{
+    el.addEventListener('click', ()=> selectMonth(parseInt(el.getAttribute('data-year'), 10), parseInt(el.getAttribute('data-month'), 10)));
+  });
 }
 
 // Modo de orden de "Movimientos recientes": 'default' (cronológico) o 'category'.
@@ -1546,7 +1587,14 @@ function renderFeed(){
     return;
   }
 
-  const base = filterFeedExpenses(expenses);
+  // Movimientos recientes muestra solo el mes que se está viendo (igual que el total y el donut).
+  const monthExpenses = currentMonthExpenses();
+  if(monthExpenses.length === 0){
+    feed.innerHTML = '<div class="empty">No tienes movimientos en este mes.</div>';
+    return;
+  }
+
+  const base = filterFeedExpenses(monthExpenses);
   if(base.length === 0){
     feed.innerHTML = '<div class="empty">Ningún movimiento coincide con la búsqueda.</div>';
     return;
