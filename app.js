@@ -51,6 +51,7 @@ const GROUP_BUDGET_KEY = 'timeless_group_budgets';
 const REMINDERS_KEY = 'timeless_reminders';
 const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
 const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
+const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -83,6 +84,15 @@ function loadDeletedBaseCats(){
 }
 function saveDeletedBaseCats(){
   try{ localStorage.setItem(DELETED_BASE_KEY, JSON.stringify(deletedBaseCats)); }catch(e){}
+}
+
+let showCatCompare = true; // muestra/oculta el indicador ▲/▼ por categoría en "Por categoría"
+function loadShowCatCompare(){
+  try{ const v = localStorage.getItem(SHOW_CAT_COMPARE_KEY); showCatCompare = (v === null) ? true : v === '1'; }
+  catch(e){ showCatCompare = true; }
+}
+function saveShowCatCompare(){
+  try{ localStorage.setItem(SHOW_CAT_COMPARE_KEY, showCatCompare ? '1' : '0'); }catch(e){}
 }
 
 function allCategories(){
@@ -159,7 +169,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -732,6 +742,38 @@ function renderMonthTotal(){
   document.getElementById('monthLabel').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
   renderMtBudgetPanel();
   renderMtBudgetBar(total);
+  renderMtCompare();
+}
+
+// Total gastado (con el filtro de grupo activo) en un mes, limitado a los días 1..upToDay.
+function groupFilteredTotalUpTo(year, month, upToDay){
+  const monthExp = applyGroupFilter(expenses.filter(e=>{
+    const d = new Date(e.date);
+    return d.getFullYear() === year && d.getMonth() === month && d.getDate() <= upToDay;
+  }));
+  return monthExp.reduce((s,e)=>s+e.amount, 0);
+}
+
+// Indicador ▲/▼ + % del total del mes (general/grupo) vs el mismo tramo de días del
+// mes anterior. Igual criterio de "hasta qué día" que updateCategoryCompare.
+function renderMtCompare(){
+  const el = document.getElementById('mtCompare');
+  if(!el) return;
+  const prev = new Date(viewYear, viewMonth - 1, 1);
+  const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const cutoff = compareCutoffDay(viewYear, viewMonth, prevYear, prevMonth);
+  const viewedTotal = groupFilteredTotalUpTo(viewYear, viewMonth, cutoff);
+  const prevTotal = groupFilteredTotalUpTo(prevYear, prevMonth, cutoff);
+  if(prevTotal <= 0){
+    el.textContent = '';
+    el.className = 'mt-compare';
+    return;
+  }
+  const diff = (viewedTotal - prevTotal) / prevTotal * 100;
+  const up = diff >= 0;
+  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
+  el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
+  el.className = 'mt-compare ' + (up ? 'up' : 'down');
 }
 
 // Etiqueta y flechas de navegación de mes, al costado de "Mis gastos".
@@ -881,17 +923,22 @@ function renderBreakdown(){
   }
 
   // Mes anterior al que se está viendo, para el indicador ▲/▼ por categoría.
+  // Compara solo el mismo tramo de días en ambos meses (ver compareCutoffDay).
   const prev = new Date(viewYear, viewMonth - 1, 1);
   const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const cutoff = compareCutoffDay(viewYear, viewMonth, prevYear, prevMonth);
 
   container.innerHTML = rows.map(c=>{
     const pct = grandTotal>0 ? (c.total/grandTotal*100) : 0;
-    const prevTotal = categoryTotalForMonth(c.id, prevYear, prevMonth);
     let compareHtml = '';
-    if(prevTotal > 0){
-      const diff = (c.total - prevTotal) / prevTotal * 100;
-      const up = diff >= 0;
-      compareHtml = '<span class="bd-compare ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '%</span>';
+    if(showCatCompare){
+      const cappedTotal = categoryTotalForMonth(c.id, viewYear, viewMonth, cutoff);
+      const prevTotal = categoryTotalForMonth(c.id, prevYear, prevMonth, cutoff);
+      if(prevTotal > 0){
+        const diff = (cappedTotal - prevTotal) / prevTotal * 100;
+        const up = diff >= 0;
+        compareHtml = '<span class="bd-compare ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '%</span>';
+      }
     }
     return '<div class="bd-row clickable" data-cat="' + c.id + '"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span>' + compareHtml + '<span class="amt">S/ ' + fmt(c.total) + '</span><span class="chevron">›</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
   }).join('');
@@ -919,32 +966,51 @@ function dailyTotalsForCategory(catId){
 
 function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
 
-// Total de una categoría en un mes/año dados.
-function categoryTotalForMonth(catId, year, month){
+// Total de una categoría en un mes/año dados. `upToDay` (opcional) limita la suma
+// a los días 1..upToDay del mes (para comparar "lo que va del mes" contra el mismo
+// tramo de días del mes anterior, en vez de mes completo vs mes a medias).
+function categoryTotalForMonth(catId, year, month, upToDay){
+  const cap = (upToDay == null) ? Infinity : upToDay;
   let t = 0;
   expenses.forEach(e=>{
     if(e.category !== catId) return;
     const d = new Date(e.date);
-    if(d.getFullYear() === year && d.getMonth() === month) t += e.amount;
+    if(d.getFullYear() === year && d.getMonth() === month && d.getDate() <= cap) t += e.amount;
   });
   return t;
 }
 
-// Indicador ▲/▼ + % vs el mismo mes anterior. Se oculta si no hubo gasto el mes pasado.
+// Día límite para comparar el mes (yearA,monthA) contra (yearB,monthB): si A es el
+// mes real en curso, hasta hoy; si A ya terminó, hasta su último día. Nunca más
+// allá de los días que tenga B (ej: comparar contra febrero corta en el día 28/29).
+function compareCutoffDay(yearA, monthA, yearB, monthB){
+  const now = new Date();
+  const isOngoing = (yearA === now.getFullYear() && monthA === now.getMonth());
+  const daysInA = new Date(yearA, monthA + 1, 0).getDate();
+  const daysInB = new Date(yearB, monthB + 1, 0).getDate();
+  const cutoff = isOngoing ? now.getDate() : daysInA;
+  return Math.min(cutoff, daysInB);
+}
+
+// Indicador ▲/▼ + % vs el mismo tramo de días del mes anterior. Se oculta si no
+// hubo gasto en ese tramo el mes pasado.
 function updateCategoryCompare(catId, monthTotal, year, month){
   const el = document.getElementById('cdCompare');
   if(!el) return;
   const prev = new Date(year, month - 1, 1);
-  const prevTotal = categoryTotalForMonth(catId, prev.getFullYear(), prev.getMonth());
+  const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const cutoff = compareCutoffDay(year, month, prevYear, prevMonth);
+  const monthTotalCapped = categoryTotalForMonth(catId, year, month, cutoff);
+  const prevTotal = categoryTotalForMonth(catId, prevYear, prevMonth, cutoff);
   if(prevTotal <= 0){
     el.textContent = '';
     el.className = 'cd-compare';
     return;
   }
-  const diff = (monthTotal - prevTotal) / prevTotal * 100;
+  const diff = (monthTotalCapped - prevTotal) / prevTotal * 100;
   const up = diff >= 0;
   const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
-  el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName;
+  el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
   el.className = 'cd-compare ' + (up ? 'up' : 'down');
 }
 
@@ -1330,6 +1396,12 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
   setCurrentBudgetValue(null);
   document.getElementById('mtBudgetInput').value = '';
   renderMonthTotal();
+});
+document.getElementById('mtCompareToggleBtn').addEventListener('click', ()=>{
+  showCatCompare = !showCatCompare;
+  saveShowCatCompare();
+  document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
+  renderBreakdown();
 });
 
 // Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto).
@@ -2222,6 +2294,8 @@ loadGroupBudgets();
 loadCatGroups();
 loadRecurring();
 loadReminders();
+loadShowCatCompare();
+document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 renderCats();
 loadExpenses();
 flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes

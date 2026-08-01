@@ -24,19 +24,19 @@
   <div class="head-top">
     <div class="head-left">
       <div class="eyebrow" id="eyebrow" title="Toca para editar"><span id="eyebrowText">Timeless · Control personal</span><span class="edit-pencil" id="eyebrowEdit">✎</span></div>
-      <div class="title-row">
-        <h1>Mis gastos</h1>
-        <div class="month-switch" id="monthSwitch">
-          <button class="month-switch-btn" id="monthPrevBtn" type="button" aria-label="Mes anterior">‹</button>
-          <span class="month-switch-label" id="monthSwitchLabel">Este mes</span>
-          <button class="month-switch-btn" id="monthNextBtn" type="button" aria-label="Mes siguiente">›</button>
-        </div>
-      </div>
+      <h1>Mis gastos</h1>
     </div>
-    <div class="header-btns">
-      <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁</div>
-      <div class="gear-btn" id="saveSheetsBtn" title="Guardar en Google Sheets">💾</div>
-      <div class="gear-btn" id="gearBtn">⚙️</div>
+    <div class="header-right">
+      <div class="header-btns">
+        <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁</div>
+        <div class="gear-btn" id="saveSheetsBtn" title="Guardar en Google Sheets">💾</div>
+        <div class="gear-btn" id="gearBtn">⚙️</div>
+      </div>
+      <div class="month-switch" id="monthSwitch">
+        <button class="month-switch-btn" id="monthPrevBtn" type="button" aria-label="Mes anterior">‹</button>
+        <span class="month-switch-label" id="monthSwitchLabel">Este mes</span>
+        <button class="month-switch-btn" id="monthNextBtn" type="button" aria-label="Mes siguiente">›</button>
+      </div>
     </div>
   </div>
   <div class="cat-groups" id="catGroups"></div>
@@ -45,8 +45,12 @@
     <div class="label" id="monthLabel">Este mes</div>
     <div class="mt-row">
       <div class="value">S/<span id="monthValue">0.00</span></div>
-      <button class="mt-budget-btn" id="mtBudgetBtn" type="button" title="Presupuesto">🎯</button>
+      <div class="mt-actions">
+        <button class="mt-budget-btn" id="mtBudgetBtn" type="button" title="Presupuesto">🎯</button>
+        <button class="mt-budget-btn" id="mtCompareToggleBtn" type="button" title="Mostrar/ocultar comparación por categoría">📊</button>
+      </div>
     </div>
+    <div class="mt-compare" id="mtCompare"></div>
     <div class="mt-budget-panel" id="mtBudgetPanel">
       <div class="cd-color-title cd-budget-title" id="mtBudgetTitle">Presupuesto general (opcional)</div>
       <div class="cd-budget-input-wrap">

@@ -55,11 +55,12 @@ h1{
   font-weight:800;
   letter-spacing:-0.02em;
 }
-.title-row{
+.header-right{
   display:flex;
-  align-items:center;
-  gap:10px;
-  flex-wrap:wrap;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:8px;
+  flex-shrink:0;
 }
 .month-switch{
   display:flex;
@@ -98,12 +99,13 @@ h1{
   font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
 }
 .month-total .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;}
-.month-total .value{font-size:34px;font-weight:700;color:var(--bone);white-space:nowrap;}
+.month-total .value{font-size:34px;font-weight:700;color:var(--bone);white-space:nowrap;flex:1;}
 .month-total .value span{color:var(--accent);margin-left:5px;}
 /* Escala para montos grandes sin desbordar */
 .month-total .value.compact{font-size:28px;}
 .month-total .value.mini{font-size:23px;}
 .mt-row{display:flex;align-items:center;gap:10px;}
+.mt-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .mt-budget-btn{
   background:var(--chip);
   border:1px solid var(--line);
@@ -113,6 +115,18 @@ h1{
   font-size:15px;
   flex-shrink:0;
 }
+.mt-budget-btn.active{background:var(--accent-dim);border-color:var(--accent);}
+.mt-compare{
+  font-size:11px;
+  font-weight:700;
+  display:inline-block;
+  margin-top:4px;
+  padding:2px 8px;
+  border-radius:6px;
+}
+.mt-compare:empty{display:none;}
+.mt-compare.up{color:#ff8f6b;background:rgba(232,68,44,.16);}
+.mt-compare.down{color:#5bd98a;background:rgba(74,222,128,.15);}
 .mt-budget-panel{
   display:none;
   margin-top:10px;
