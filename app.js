@@ -880,9 +880,20 @@ function renderBreakdown(){
     return;
   }
 
+  // Mes anterior al que se está viendo, para el indicador ▲/▼ por categoría.
+  const prev = new Date(viewYear, viewMonth - 1, 1);
+  const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+
   container.innerHTML = rows.map(c=>{
     const pct = grandTotal>0 ? (c.total/grandTotal*100) : 0;
-    return '<div class="bd-row clickable" data-cat="' + c.id + '"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span><span class="amt">S/ ' + fmt(c.total) + '</span><span class="chevron">›</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
+    const prevTotal = categoryTotalForMonth(c.id, prevYear, prevMonth);
+    let compareHtml = '';
+    if(prevTotal > 0){
+      const diff = (c.total - prevTotal) / prevTotal * 100;
+      const up = diff >= 0;
+      compareHtml = '<span class="bd-compare ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '%</span>';
+    }
+    return '<div class="bd-row clickable" data-cat="' + c.id + '"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span>' + compareHtml + '<span class="amt">S/ ' + fmt(c.total) + '</span><span class="chevron">›</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
   }).join('');
 
   container.querySelectorAll('.bd-row[data-cat]').forEach(row=>{
