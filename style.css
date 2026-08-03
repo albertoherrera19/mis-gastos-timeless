@@ -123,6 +123,8 @@ h1{
   margin-top:4px;
   padding:2px 8px;
   border-radius:6px;
+  color:var(--muted);
+  background:var(--chip);
 }
 .mt-compare:empty{display:none;}
 .mt-compare.up{color:#ff8f6b;background:rgba(232,68,44,.16);}
@@ -649,6 +651,7 @@ input[type="text"]::placeholder{color:var(--muted);}
 }
 .bd-compare.up{color:#ff8f6b;background:rgba(232,68,44,.16);}
 .bd-compare.down{color:#5bd98a;background:rgba(74,222,128,.15);}
+.bd-compare.neutral{color:var(--muted);background:var(--chip);cursor:help;}
 
 /* ---- Detalle diario por categoría (página completa) ---- */
 .cat-detail-page{
@@ -704,7 +707,9 @@ body.cd-open{overflow:hidden;}
   flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
   padding:0;
+  font-size:16px;
 }
+.cd-color-btn.active{background:var(--accent-dim);border-color:var(--accent);}
 .cd-gear-icon{
   display:block;
   color:var(--cd-accent, var(--accent));
@@ -860,6 +865,8 @@ body.cd-open{overflow:hidden;}
   text-transform:none;
   letter-spacing:0;
   white-space:nowrap;
+  color:var(--muted);
+  background:var(--chip);
 }
 .cd-compare:empty{display:none;}
 .cd-compare.up{color:#ff8f6b;background:rgba(232,68,44,.16);}

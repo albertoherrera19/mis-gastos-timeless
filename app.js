@@ -766,19 +766,23 @@ function renderMtCompare(){
   }
   const prev = new Date(viewYear, viewMonth - 1, 1);
   const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
   const cutoff = compareCutoffDay(viewYear, viewMonth, prevYear, prevMonth);
   const viewedTotal = groupFilteredTotalUpTo(viewYear, viewMonth, cutoff);
-  const prevTotal = groupFilteredTotalUpTo(prevYear, prevMonth, cutoff);
-  if(prevTotal <= 0){
+  const prevTotalCapped = groupFilteredTotalUpTo(prevYear, prevMonth, cutoff);
+  const fullPrevTotal = groupFilteredTotalUpTo(prevYear, prevMonth, Infinity);
+  const result = buildCompareResult(viewedTotal, prevTotalCapped, fullPrevTotal);
+
+  if(result === null){
     el.textContent = '';
     el.className = 'mt-compare';
-    return;
+  } else if(result.noWindowData){
+    el.textContent = 'Sin gasto en los primeros ' + cutoff + ' días de ' + prevName;
+    el.className = 'mt-compare';
+  } else {
+    el.textContent = (result.up ? '▲' : '▼') + ' ' + Math.abs(Math.round(result.diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
+    el.className = 'mt-compare ' + (result.up ? 'up' : 'down');
   }
-  const diff = (viewedTotal - prevTotal) / prevTotal * 100;
-  const up = diff >= 0;
-  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
-  el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
-  el.className = 'mt-compare ' + (up ? 'up' : 'down');
 }
 
 // Etiqueta y flechas de navegación de mes, al costado de "Mis gastos".
@@ -938,11 +942,13 @@ function renderBreakdown(){
     let compareHtml = '';
     if(showCatCompare){
       const cappedTotal = categoryTotalForMonth(c.id, viewYear, viewMonth, cutoff);
-      const prevTotal = categoryTotalForMonth(c.id, prevYear, prevMonth, cutoff);
-      if(prevTotal > 0){
-        const diff = (cappedTotal - prevTotal) / prevTotal * 100;
-        const up = diff >= 0;
-        compareHtml = '<span class="bd-compare ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '%</span>';
+      const prevTotalCapped = categoryTotalForMonth(c.id, prevYear, prevMonth, cutoff);
+      const fullPrevTotal = categoryTotalForMonth(c.id, prevYear, prevMonth);
+      const result = buildCompareResult(cappedTotal, prevTotalCapped, fullPrevTotal);
+      if(result && result.noWindowData){
+        compareHtml = '<span class="bd-compare neutral" title="Sin gasto en los primeros ' + cutoff + ' días del mes anterior">—</span>';
+      } else if(result){
+        compareHtml = '<span class="bd-compare ' + (result.up ? 'up' : 'down') + '">' + (result.up ? '▲' : '▼') + ' ' + Math.abs(Math.round(result.diff)) + '%</span>';
       }
     }
     return '<div class="bd-row clickable" data-cat="' + c.id + '"><span class="icon">' + c.icon + '</span><span class="name">' + c.name + '</span>' + compareHtml + '<span class="amt">S/ ' + fmt(c.total) + '</span><span class="chevron">›</span></div><div class="bd-bar"><div class="bd-bar-fill" style="width:' + pct + '%"></div></div>';
@@ -997,6 +1003,19 @@ function compareCutoffDay(yearA, monthA, yearB, monthB){
   return Math.min(cutoff, daysInB);
 }
 
+// Decide qué mostrar en un indicador de comparación:
+// - null: el mes anterior no tuvo NINGÚN gasto (ni siquiera fuera del tramo) -> ocultar del todo.
+// - {noWindowData:true}: el mes anterior sí tuvo gasto, pero no dentro del mismo tramo de días
+//   (ej: recién el día 20) -> avisar que no hay con qué comparar en ese tramo, en vez de
+//   desaparecer sin explicación (eso es lo que hacía parecer que el indicador estaba roto).
+// - {diff, up}: hay datos comparables en ambos tramos -> mostrar el % normal.
+function buildCompareResult(cappedNow, cappedPrev, fullPrev){
+  if(fullPrev <= 0) return null;
+  if(cappedPrev <= 0) return {noWindowData:true};
+  const diff = (cappedNow - cappedPrev) / cappedPrev * 100;
+  return {diff:diff, up: diff >= 0};
+}
+
 // Indicador ▲/▼ + % vs el mismo tramo de días del mes anterior, y el total (completo,
 // sin recortar) del mes anterior en la esquina. Ambos solo si showCatCompare está activo.
 function updateCategoryCompare(catId, monthTotal, year, month){
@@ -1014,23 +1033,26 @@ function updateCategoryCompare(catId, monthTotal, year, month){
     return;
   }
 
+  const fullPrevTotal = categoryTotalForMonth(catId, prevYear, prevMonth);
   if(prevEl){
-    const prevFullTotal = categoryTotalForMonth(catId, prevYear, prevMonth);
-    prevEl.textContent = 'Total ' + cap(prevName) + ': S/ ' + fmt(prevFullTotal);
+    prevEl.textContent = 'Total ' + cap(prevName) + ': S/ ' + fmt(fullPrevTotal);
   }
 
   const cutoff = compareCutoffDay(year, month, prevYear, prevMonth);
   const monthTotalCapped = categoryTotalForMonth(catId, year, month, cutoff);
-  const prevTotal = categoryTotalForMonth(catId, prevYear, prevMonth, cutoff);
-  if(prevTotal <= 0){
+  const prevTotalCapped = categoryTotalForMonth(catId, prevYear, prevMonth, cutoff);
+  const result = buildCompareResult(monthTotalCapped, prevTotalCapped, fullPrevTotal);
+
+  if(result === null){
     el.textContent = '';
     el.className = 'cd-compare';
-    return;
+  } else if(result.noWindowData){
+    el.textContent = 'Sin gasto en los primeros ' + cutoff + ' días de ' + prevName;
+    el.className = 'cd-compare';
+  } else {
+    el.textContent = (result.up ? '▲' : '▼') + ' ' + Math.abs(Math.round(result.diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
+    el.className = 'cd-compare ' + (result.up ? 'up' : 'down');
   }
-  const diff = (monthTotalCapped - prevTotal) / prevTotal * 100;
-  const up = diff >= 0;
-  el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
-  el.className = 'cd-compare ' + (up ? 'up' : 'down');
 }
 
 // Estado del gráfico de detalle
@@ -1162,6 +1184,7 @@ function openCategoryDetail(catId){
   }
 
   // Comparativo vs mes anterior (solo si hubo gasto el mes pasado en esta categoría).
+  document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
   updateCategoryCompare(catId, monthTotal, year, month);
 
   const monthName = new Date(year, month, 1).toLocaleDateString('es-PE', {month:'long'});
@@ -1416,13 +1439,23 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
   document.getElementById('mtBudgetInput').value = '';
   renderMonthTotal();
 });
-document.getElementById('mtCompareToggleBtn').addEventListener('click', ()=>{
+// Compartido por el botón 📊 del header y el de dentro de cada categoría.
+function toggleShowCatCompare(){
   showCatCompare = !showCatCompare;
   saveShowCatCompare();
   document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
+  document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
   renderMtCompare();
   renderBreakdown();
-});
+  // Si hay una categoría abierta, refresca su comparativo también.
+  if(cdCatId){
+    const monthTotal = parseFloat(document.getElementById('cdTotal').textContent) || 0;
+    updateCategoryCompare(cdCatId, monthTotal, cdYear, cdMonth);
+  }
+}
+
+document.getElementById('mtCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
+document.getElementById('cdCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
 
 // Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto).
 function renderBudgetBar(catId, spent){
@@ -2316,6 +2349,7 @@ loadRecurring();
 loadReminders();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
+document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
 renderCats();
 loadExpenses();
 flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes
