@@ -86,10 +86,10 @@ function saveDeletedBaseCats(){
   try{ localStorage.setItem(DELETED_BASE_KEY, JSON.stringify(deletedBaseCats)); }catch(e){}
 }
 
-let showCatCompare = true; // muestra/oculta el indicador ▲/▼ por categoría en "Por categoría"
+let showCatCompare = false; // oculto por defecto; el botón 📊 activa los indicadores ▲/▼ vs. mes anterior
 function loadShowCatCompare(){
-  try{ const v = localStorage.getItem(SHOW_CAT_COMPARE_KEY); showCatCompare = (v === null) ? true : v === '1'; }
-  catch(e){ showCatCompare = true; }
+  try{ showCatCompare = localStorage.getItem(SHOW_CAT_COMPARE_KEY) === '1'; }
+  catch(e){ showCatCompare = false; }
 }
 function saveShowCatCompare(){
   try{ localStorage.setItem(SHOW_CAT_COMPARE_KEY, showCatCompare ? '1' : '0'); }catch(e){}
@@ -759,6 +759,11 @@ function groupFilteredTotalUpTo(year, month, upToDay){
 function renderMtCompare(){
   const el = document.getElementById('mtCompare');
   if(!el) return;
+  if(!showCatCompare){
+    el.textContent = '';
+    el.className = 'mt-compare';
+    return;
+  }
   const prev = new Date(viewYear, viewMonth - 1, 1);
   const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
   const cutoff = compareCutoffDay(viewYear, viewMonth, prevYear, prevMonth);
@@ -992,13 +997,28 @@ function compareCutoffDay(yearA, monthA, yearB, monthB){
   return Math.min(cutoff, daysInB);
 }
 
-// Indicador ▲/▼ + % vs el mismo tramo de días del mes anterior. Se oculta si no
-// hubo gasto en ese tramo el mes pasado.
+// Indicador ▲/▼ + % vs el mismo tramo de días del mes anterior, y el total (completo,
+// sin recortar) del mes anterior en la esquina. Ambos solo si showCatCompare está activo.
 function updateCategoryCompare(catId, monthTotal, year, month){
   const el = document.getElementById('cdCompare');
+  const prevEl = document.getElementById('cdPrevTotal');
   if(!el) return;
   const prev = new Date(year, month - 1, 1);
   const prevYear = prev.getFullYear(), prevMonth = prev.getMonth();
+  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
+
+  if(!showCatCompare){
+    el.textContent = '';
+    el.className = 'cd-compare';
+    if(prevEl) prevEl.textContent = '';
+    return;
+  }
+
+  if(prevEl){
+    const prevFullTotal = categoryTotalForMonth(catId, prevYear, prevMonth);
+    prevEl.textContent = 'Total ' + cap(prevName) + ': S/ ' + fmt(prevFullTotal);
+  }
+
   const cutoff = compareCutoffDay(year, month, prevYear, prevMonth);
   const monthTotalCapped = categoryTotalForMonth(catId, year, month, cutoff);
   const prevTotal = categoryTotalForMonth(catId, prevYear, prevMonth, cutoff);
@@ -1009,7 +1029,6 @@ function updateCategoryCompare(catId, monthTotal, year, month){
   }
   const diff = (monthTotalCapped - prevTotal) / prevTotal * 100;
   const up = diff >= 0;
-  const prevName = prev.toLocaleDateString('es-PE', {month:'long'});
   el.textContent = (up ? '▲' : '▼') + ' ' + Math.abs(Math.round(diff)) + '% vs ' + prevName + ' (hasta el día ' + cutoff + ')';
   el.className = 'cd-compare ' + (up ? 'up' : 'down');
 }
@@ -1401,6 +1420,7 @@ document.getElementById('mtCompareToggleBtn').addEventListener('click', ()=>{
   showCatCompare = !showCatCompare;
   saveShowCatCompare();
   document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
+  renderMtCompare();
   renderBreakdown();
 });
 

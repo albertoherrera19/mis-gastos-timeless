@@ -45,10 +45,8 @@
     <div class="label" id="monthLabel">Este mes</div>
     <div class="mt-row">
       <div class="value">S/<span id="monthValue">0.00</span></div>
-      <div class="mt-actions">
-        <button class="mt-budget-btn" id="mtBudgetBtn" type="button" title="Presupuesto">🎯</button>
-        <button class="mt-budget-btn" id="mtCompareToggleBtn" type="button" title="Mostrar/ocultar comparación por categoría">📊</button>
-      </div>
+      <button class="mt-budget-btn" id="mtBudgetBtn" type="button" title="Presupuesto">🎯</button>
+      <button class="mt-budget-btn mt-compare-toggle-btn" id="mtCompareToggleBtn" type="button" title="Mostrar/ocultar comparación por categoría">📊</button>
     </div>
     <div class="mt-compare" id="mtCompare"></div>
     <div class="mt-budget-panel" id="mtBudgetPanel">
@@ -186,7 +184,10 @@
       <button class="cd-budget-btn cd-budget-clear" id="cdBudgetClear" type="button">Quitar</button>
     </div>
   </div>
-  <div class="cd-total">Total este mes <span class="cd-total-val">S/<span id="cdTotal">0.00</span></span> <span class="cd-compare" id="cdCompare"></span></div>
+  <div class="cd-total">
+    <div class="cd-total-main">Total este mes <span class="cd-total-val">S/<span id="cdTotal">0.00</span></span> <span class="cd-compare" id="cdCompare"></span></div>
+    <div class="cd-prev-total" id="cdPrevTotal"></div>
+  </div>
   <div class="cd-budget-bar" id="cdBudgetBar"></div>
   <div class="cd-sub" id="cdSub">Gasto por día</div>
   <div class="cd-graph" id="cdGraph">
