@@ -651,7 +651,6 @@ input[type="text"]::placeholder{color:var(--muted);}
 }
 .bd-compare.up{color:#ff8f6b;background:rgba(232,68,44,.16);}
 .bd-compare.down{color:#5bd98a;background:rgba(74,222,128,.15);}
-.bd-compare.neutral{color:var(--muted);background:var(--chip);cursor:help;}
 
 /* ---- Detalle diario por categoría (página completa) ---- */
 .cat-detail-page{
@@ -824,14 +823,16 @@ body.cd-open{overflow:hidden;}
   letter-spacing:.08em;
   color:var(--accent);
   font-weight:700;
+  min-width:0;
 }
 .cd-prev-total{
   font-size:11px;
   font-family:monospace;
   color:var(--muted);
   text-align:right;
-  white-space:nowrap;
-  flex-shrink:0;
+  min-width:0;
+  max-width:42%;
+  flex-shrink:1;
   padding-top:3px;
 }
 .cd-prev-total:empty{display:none;}

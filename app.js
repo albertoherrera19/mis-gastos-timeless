@@ -945,9 +945,7 @@ function renderBreakdown(){
       const prevTotalCapped = categoryTotalForMonth(c.id, prevYear, prevMonth, cutoff);
       const fullPrevTotal = categoryTotalForMonth(c.id, prevYear, prevMonth);
       const result = buildCompareResult(cappedTotal, prevTotalCapped, fullPrevTotal);
-      if(result && result.noWindowData){
-        compareHtml = '<span class="bd-compare neutral" title="Sin gasto en los primeros ' + cutoff + ' días del mes anterior">—</span>';
-      } else if(result){
+      if(result && !result.noWindowData){
         compareHtml = '<span class="bd-compare ' + (result.up ? 'up' : 'down') + '">' + (result.up ? '▲' : '▼') + ' ' + Math.abs(Math.round(result.diff)) + '%</span>';
       }
     }
