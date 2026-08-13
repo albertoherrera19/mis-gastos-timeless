@@ -525,6 +525,7 @@ function manualSheetsSync(){
     return;
   }
   flushSheetsQueue();
+  syncCashbackToSheets(); // fuerza también el envío del cashback
   showToast('✓ Guardado en Google Sheets', 'ok');
 }
 
@@ -767,6 +768,48 @@ function saveCashbackExclude(){
     else localStorage.removeItem(CASHBACK_EXCLUDE_KEY);
   }catch(e){}
 }
+
+// ---------- Envío del cashback a Google Sheets (para el dashboard) ----------
+// El dashboard lee una pestaña "Cashback" (Fecha, Monto, Nota). Se manda TODA la
+// lista en cada cambio (full-replace, type 'cashbackSync'), porque los retiros se
+// pueden editar/borrar. Fecha en hora LOCAL 'YYYY-MM-DDTHH:mm:ss' sin "Z" (evita el
+// corrimiento UTC-5). Si no hay internet, queda una bandera y se reintenta al volver.
+const CASHBACK_SYNC_DIRTY_KEY = 'timeless_cashback_dirty';
+
+function toLocalDateTimeStr(iso){
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) +
+    'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
+function syncCashbackToSheets(){
+  if(!sheetsSyncEnabled()) return;
+  if(typeof navigator !== 'undefined' && navigator.onLine === false){
+    try{ localStorage.setItem(CASHBACK_SYNC_DIRTY_KEY, '1'); }catch(e){}
+    return;
+  }
+  const rows = cashback.map(c=>({
+    amount: c.amount,
+    date: toLocalDateTimeStr(c.date),
+    note: c.note || ''
+  }));
+  fetch(SHEETS_WEBHOOK_URL, {
+    method: 'POST',
+    mode: 'no-cors', // fire-and-forget, igual que el envío de gastos
+    body: JSON.stringify({ type: 'cashbackSync', rows: rows })
+  }).then(()=>{
+    try{ localStorage.removeItem(CASHBACK_SYNC_DIRTY_KEY); }catch(e){}
+  }).catch(()=>{
+    try{ localStorage.setItem(CASHBACK_SYNC_DIRTY_KEY, '1'); }catch(e){}
+  });
+}
+
+function flushCashbackIfDirty(){
+  try{ if(localStorage.getItem(CASHBACK_SYNC_DIRTY_KEY) === '1') syncCashbackToSheets(); }catch(e){}
+}
+window.addEventListener('online', flushCashbackIfDirty);
 
 // Simula el consumo cronológico: recorre gastos + retiros de cashback ordenados
 // por fecha y va gastando el crédito disponible. Los gastos del grupo "negocio"
@@ -2466,6 +2509,7 @@ function saveCbItem(){
     cashback.push({id:'cb_' + Date.now(), amount:amount, note:note, date:date});
   }
   saveCashback();
+  syncCashbackToSheets(); // manda la lista al dashboard
   showCbList();
   renderCashbackList();
   renderAll(); // el total general puede haber cambiado
@@ -2476,6 +2520,7 @@ function deleteCbItem(){
   if(!window.confirm('¿Eliminar este registro de cashback?')) return;
   cashback = cashback.filter(x=>x.id !== cbEditingId);
   saveCashback();
+  syncCashbackToSheets(); // manda la lista actualizada al dashboard
   showCbList();
   renderCashbackList();
   renderAll();
@@ -2592,3 +2637,4 @@ document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCat
 renderCats();
 loadExpenses();
 flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes
+flushCashbackIfDirty(); // reintenta el envío del cashback si quedó pendiente
