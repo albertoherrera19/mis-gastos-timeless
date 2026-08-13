@@ -30,6 +30,7 @@
       <div class="header-btns">
         <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁</div>
         <div class="gear-btn" id="saveSheetsBtn" title="Guardar en Google Sheets">💾</div>
+        <div class="gear-btn" id="cashbackBtn" title="Cashback">💰</div>
         <div class="gear-btn" id="gearBtn">⚙️</div>
       </div>
       <div class="month-switch" id="monthSwitch">
@@ -300,6 +301,35 @@
         <button class="group-delete-btn" id="remDeleteBtn" type="button">Eliminar</button>
         <button class="group-delete-btn" id="remCancelBtn" type="button">Cancelar</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="cat-detail-page recurring-page" id="cashbackPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="cashbackBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title">Cashback</span></div>
+  </div>
+  <div class="edit-card">
+    <div id="cbListWrap">
+      <div class="rec-hint">Registra cada retiro de cashback de tu tarjeta. Ese monto se resta del total general del mes (Predeterminado) hasta agotarse, como si esos gastos ya estuvieran cubiertos.</div>
+      <div class="cb-balance" id="cbBalance"></div>
+      <div class="rec-list" id="cashbackList"></div>
+      <button class="save-btn rec-add-btn" id="cashbackAddBtn" type="button">+ Nuevo cashback</button>
+    </div>
+    <div id="cbFormWrap" style="display:none">
+      <div class="amount-row">
+        <span>S/</span>
+        <input type="number" id="cbAmount" placeholder="0.00" inputmode="decimal" step="0.01">
+      </div>
+      <input type="text" id="cbNote" placeholder="Nota (opcional) — ej: retiro BCP">
+      <label class="date-row">
+        <span class="date-label">📅 Fecha <span class="date-hint">(opcional — hoy por defecto)</span></span>
+        <input type="date" id="cbDate" class="date-input">
+      </label>
+      <button class="save-btn" id="cbSaveBtn">Guardar</button>
+      <button class="group-delete-btn" id="cbDeleteBtn" type="button">Eliminar</button>
+      <button class="group-delete-btn" id="cbCancelBtn" type="button">Cancelar</button>
     </div>
   </div>
 </div>

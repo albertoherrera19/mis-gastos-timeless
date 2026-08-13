@@ -52,6 +52,7 @@ const REMINDERS_KEY = 'timeless_reminders';
 const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
 const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
 const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
+const CASHBACK_KEY = 'timeless_cashback';
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -169,7 +170,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY];
 
 function exportBackup(){
   const data = {};
@@ -727,9 +728,66 @@ function currentMonthExpenses(){
   });
 }
 
+/* ---------- Cashback ----------
+   El cashback se registra como una lista simple de retiros (monto + fecha).
+   Se consume cronológicamente contra TODOS los gastos (sin filtro de grupo: es
+   plata real, no depende de cómo organices tus categorías), así que "retirar 17
+   soles" cubre automáticamente los próximos 17 soles de gasto que ocurran después,
+   sin importar el mes. Solo se descuenta del total en la vista "Predeterminado"
+   (sin grupo activo) — a un grupo específico no se le puede atribuir el cashback. */
+let cashback = []; // [{id, amount, date (ISO), note}]
+
+function loadCashback(){
+  try{ cashback = JSON.parse(localStorage.getItem(CASHBACK_KEY)) || []; }
+  catch(e){ cashback = []; }
+}
+function saveCashback(){
+  try{ localStorage.setItem(CASHBACK_KEY, JSON.stringify(cashback)); }catch(e){}
+}
+
+// Simula el consumo cronológico: recorre gastos + retiros de cashback ordenados
+// por fecha y va gastando el crédito disponible. Devuelve cuánto de cada gasto
+// quedó cubierto ({expenseId: monto}) y cuánto crédito queda sin usar.
+function cashbackCoverage(){
+  const events = [];
+  expenses.forEach(e=> events.push({type:'expense', date:new Date(e.date), amount:e.amount, id:e.id}));
+  cashback.forEach(c=> events.push({type:'cashback', date:new Date(c.date), amount:c.amount}));
+  events.sort((a,b)=> a.date - b.date);
+  let credit = 0;
+  const covered = {};
+  events.forEach(ev=>{
+    if(ev.type === 'cashback'){
+      credit += ev.amount;
+    } else {
+      const use = Math.min(credit, ev.amount);
+      if(use > 0){ covered[ev.id] = use; credit -= use; }
+    }
+  });
+  return {covered:covered, remaining:credit};
+}
+
+// Cuánto cashback se usó (cubrió gastos) dentro de un mes/año específico.
+function cashbackUsedInMonth(year, month){
+  const {covered} = cashbackCoverage();
+  let used = 0;
+  expenses.forEach(e=>{
+    const d = new Date(e.date);
+    if(d.getFullYear() === year && d.getMonth() === month && covered[e.id]) used += covered[e.id];
+  });
+  return used;
+}
+
+// Total neto de una lista de gastos: en "Predeterminado" resta lo cubierto por
+// cashback; con un grupo activo se muestra el monto real/bruto.
+function netTotal(list){
+  if(activeGroup !== null) return list.reduce((s,e)=>s+e.amount, 0);
+  const {covered} = cashbackCoverage();
+  return list.reduce((s,e)=> s + Math.max(0, e.amount - (covered[e.id]||0)), 0);
+}
+
 function renderMonthTotal(){
   const monthExp = applyGroupFilter(currentMonthExpenses());
-  const total = monthExp.reduce((s,e)=>s+e.amount,0);
+  const total = netTotal(monthExp);
   const s = fmt(total);
   document.getElementById('monthValue').textContent = s;
   // Escala el tamaño para montos grandes (4-5 dígitos) sin desbordar.
@@ -745,13 +803,14 @@ function renderMonthTotal(){
   renderMtCompare();
 }
 
-// Total gastado (con el filtro de grupo activo) en un mes, limitado a los días 1..upToDay.
+// Total gastado (con el filtro de grupo activo y neto de cashback si aplica) en
+// un mes, limitado a los días 1..upToDay.
 function groupFilteredTotalUpTo(year, month, upToDay){
   const monthExp = applyGroupFilter(expenses.filter(e=>{
     const d = new Date(e.date);
     return d.getFullYear() === year && d.getMonth() === month && d.getDate() <= upToDay;
   }));
-  return monthExp.reduce((s,e)=>s+e.amount, 0);
+  return netTotal(monthExp);
 }
 
 // Indicador ▲/▼ + % del total del mes (general/grupo) vs el mismo tramo de días del
@@ -2270,6 +2329,123 @@ document.querySelectorAll('#recSubtabs .cg-tab').forEach(btn=>{
     else{ showRemList(); renderRemindersList(); }
   });
 });
+/* ---------- Página de Cashback ---------- */
+let cbEditingId = null;
+
+function renderCashbackList(){
+  const box = document.getElementById('cashbackList');
+  const balanceEl = document.getElementById('cbBalance');
+  const {remaining} = cashbackCoverage();
+  const totalRegistered = cashback.reduce((s,c)=>s+c.amount, 0);
+  const usedThisMonth = cashbackUsedInMonth(viewYear, viewMonth);
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
+
+  balanceEl.innerHTML =
+    'Cashback disponible: S/ ' + fmt(remaining) +
+    '<span class="cb-used">De S/ ' + fmt(totalRegistered) + ' registrados en total</span>' +
+    '<span class="cb-used">Usado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) + '</span>';
+
+  if(cashback.length === 0){
+    box.innerHTML = '<div class="empty">Aún no registras cashback. Agrega tu primer retiro con el botón de abajo.</div>';
+    return;
+  }
+  const sorted = [...cashback].sort((a,b)=> new Date(b.date) - new Date(a.date));
+  box.innerHTML = sorted.map(c=>{
+    const d = new Date(c.date);
+    const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short', year:'numeric'});
+    return '<div class="rec-item" data-id="' + c.id + '">' +
+             '<div class="rec-info"><div class="rec-name">💰 S/ ' + fmt(c.amount) + '</div>' +
+               '<div class="rec-meta">' + dateStr + (c.note ? ' · ' + c.note : '') + '</div></div>' +
+             '<div class="rec-actions">' +
+               '<span class="rec-edit" data-id="' + c.id + '" title="Editar">✏️</span>' +
+             '</div>' +
+           '</div>';
+  }).join('');
+  box.querySelectorAll('.rec-edit').forEach(b=>{
+    b.addEventListener('click', ()=> openCbForm(b.getAttribute('data-id')));
+  });
+}
+
+function showCbList(){
+  document.getElementById('cbListWrap').style.display = '';
+  document.getElementById('cbFormWrap').style.display = 'none';
+}
+
+function openCbForm(id){
+  cbEditingId = id;
+  const c = id ? cashback.find(x=>x.id === id) : null;
+  document.getElementById('cbAmount').value = c ? c.amount : '';
+  document.getElementById('cbNote').value = c ? (c.note || '') : '';
+  document.getElementById('cbDate').value = c ? c.date.slice(0,10) : '';
+  document.getElementById('cbDeleteBtn').style.display = c ? '' : 'none';
+  document.getElementById('cbListWrap').style.display = 'none';
+  document.getElementById('cbFormWrap').style.display = '';
+}
+
+function resolveCbDate(){
+  const dv = document.getElementById('cbDate').value;
+  if(dv){
+    const d = new Date(dv + 'T12:00:00');
+    if(!isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date().toISOString();
+}
+
+function saveCbItem(){
+  const amount = parseFloat(document.getElementById('cbAmount').value);
+  if(!(amount > 0)){ alert('Ingresa un monto válido.'); return; }
+  const note = document.getElementById('cbNote').value.trim();
+  const date = resolveCbDate();
+  if(cbEditingId){
+    const c = cashback.find(x=>x.id === cbEditingId);
+    if(c){ c.amount = amount; c.note = note; c.date = date; }
+  } else {
+    cashback.push({id:'cb_' + Date.now(), amount:amount, note:note, date:date});
+  }
+  saveCashback();
+  showCbList();
+  renderCashbackList();
+  renderAll(); // el total general puede haber cambiado
+}
+
+function deleteCbItem(){
+  if(!cbEditingId) return;
+  if(!window.confirm('¿Eliminar este registro de cashback?')) return;
+  cashback = cashback.filter(x=>x.id !== cbEditingId);
+  saveCashback();
+  showCbList();
+  renderCashbackList();
+  renderAll();
+}
+
+function openCashbackPage(){
+  cbEditingId = null;
+  showCbList();
+  renderCashbackList();
+  const page = document.getElementById('cashbackPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+}
+function closeCashbackPage(){
+  const page = document.getElementById('cashbackPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+}
+
+document.getElementById('cashbackBtn').addEventListener('click', openCashbackPage);
+document.getElementById('cashbackBack').addEventListener('click', closeCashbackPage);
+document.getElementById('cashbackAddBtn').addEventListener('click', ()=> openCbForm(null));
+document.getElementById('cbSaveBtn').addEventListener('click', saveCbItem);
+document.getElementById('cbDeleteBtn').addEventListener('click', deleteCbItem);
+document.getElementById('cbCancelBtn').addEventListener('click', showCbList);
+(function(){
+  const di = document.getElementById('cbDate');
+  if(di) di.max = new Date().toISOString().slice(0,10);
+})();
+
 document.getElementById('editAmount').addEventListener('input', validateEditForm);
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && document.getElementById('editPage').classList.contains('open')) closeEditExpense();
@@ -2345,6 +2521,7 @@ loadGroupBudgets();
 loadCatGroups();
 loadRecurring();
 loadReminders();
+loadCashback();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
