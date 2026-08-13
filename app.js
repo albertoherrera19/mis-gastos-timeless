@@ -53,6 +53,7 @@ const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
 const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
 const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
 const CASHBACK_KEY = 'timeless_cashback';
+const CASHBACK_EXCLUDE_KEY = 'timeless_cashback_exclude'; // id del grupo "negocio" que NO recibe cashback
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -170,7 +171,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -566,6 +567,15 @@ function expenseGroupIds(e){
   return [];
 }
 
+// ¿Un gasto pertenece a un grupo? (por categoría del grupo o etiqueta manual)
+function expenseInGroup(e, groupId){
+  const g = catGroups.find(x=>x.id === groupId);
+  if(!g) return false;
+  if(g.cats.indexOf(e.category) !== -1) return true;
+  if(expenseGroupIds(e).indexOf(groupId) !== -1) return true;
+  return false;
+}
+
 // Filtra una lista de gastos por el grupo activo: incluye los de categorías del
 // grupo Y los gastos individuales etiquetados manualmente con ese grupo (un
 // gasto puede estar etiquetado a varios grupos a la vez, sin duplicarse en el
@@ -732,10 +742,13 @@ function currentMonthExpenses(){
    El cashback se registra como una lista simple de retiros (monto + fecha).
    Se consume cronológicamente contra TODOS los gastos (sin filtro de grupo: es
    plata real, no depende de cómo organices tus categorías), así que "retirar 17
-   soles" cubre automáticamente los próximos 17 soles de gasto que ocurran después,
-   sin importar el mes. Solo se descuenta del total en la vista "Predeterminado"
-   (sin grupo activo) — a un grupo específico no se le puede atribuir el cashback. */
+   soles" recupera automáticamente los próximos 17 soles de gasto que ocurran después,
+   sin importar el mes (siempre hacia adelante, nunca retroactivo).
+   Se toma como plata RECUPERADA: baja el total general y los gastos personales, pero
+   NO los del grupo marcado como "negocio" (cashbackExcludeGroup), que se muestran en
+   bruto — porque su cashback conviene dejarlo fuera de los números del negocio. */
 let cashback = []; // [{id, amount, date (ISO), note}]
+let cashbackExcludeGroup = null; // id del grupo "negocio": sus gastos NO reciben cashback
 
 function loadCashback(){
   try{ cashback = JSON.parse(localStorage.getItem(CASHBACK_KEY)) || []; }
@@ -744,24 +757,36 @@ function loadCashback(){
 function saveCashback(){
   try{ localStorage.setItem(CASHBACK_KEY, JSON.stringify(cashback)); }catch(e){}
 }
+function loadCashbackExclude(){
+  try{ cashbackExcludeGroup = localStorage.getItem(CASHBACK_EXCLUDE_KEY) || null; }
+  catch(e){ cashbackExcludeGroup = null; }
+}
+function saveCashbackExclude(){
+  try{
+    if(cashbackExcludeGroup) localStorage.setItem(CASHBACK_EXCLUDE_KEY, cashbackExcludeGroup);
+    else localStorage.removeItem(CASHBACK_EXCLUDE_KEY);
+  }catch(e){}
+}
 
 // Simula el consumo cronológico: recorre gastos + retiros de cashback ordenados
-// por fecha y va gastando el crédito disponible. Devuelve cuánto de cada gasto
-// quedó cubierto ({expenseId: monto}) y cuánto crédito queda sin usar.
+// por fecha y va gastando el crédito disponible. Los gastos del grupo "negocio"
+// (excluido) NO consumen cashback. Devuelve cuánto de cada gasto quedó cubierto
+// ({expenseId: monto}) y cuánto crédito queda sin usar.
 function cashbackCoverage(){
   const events = [];
-  expenses.forEach(e=> events.push({type:'expense', date:new Date(e.date), amount:e.amount, id:e.id}));
+  expenses.forEach(e=> events.push({
+    type:'expense', date:new Date(e.date), amount:e.amount, id:e.id,
+    excluded: cashbackExcludeGroup ? expenseInGroup(e, cashbackExcludeGroup) : false
+  }));
   cashback.forEach(c=> events.push({type:'cashback', date:new Date(c.date), amount:c.amount}));
   events.sort((a,b)=> a.date - b.date);
   let credit = 0;
   const covered = {};
   events.forEach(ev=>{
-    if(ev.type === 'cashback'){
-      credit += ev.amount;
-    } else {
-      const use = Math.min(credit, ev.amount);
-      if(use > 0){ covered[ev.id] = use; credit -= use; }
-    }
+    if(ev.type === 'cashback'){ credit += ev.amount; return; }
+    if(ev.excluded) return; // gastos del negocio: el cashback no les aplica
+    const use = Math.min(credit, ev.amount);
+    if(use > 0){ covered[ev.id] = use; credit -= use; }
   });
   return {covered:covered, remaining:credit};
 }
@@ -777,17 +802,18 @@ function cashbackUsedInMonth(year, month){
   return used;
 }
 
-// Total neto de una lista de gastos: en "Predeterminado" resta lo cubierto por
-// cashback; con un grupo activo se muestra el monto real/bruto.
+// Total neto de una lista de gastos: resta lo cubierto por cashback. Como los
+// gastos del negocio nunca quedan cubiertos, ese grupo se muestra en bruto solo.
 function netTotal(list){
-  if(activeGroup !== null) return list.reduce((s,e)=>s+e.amount, 0);
   const {covered} = cashbackCoverage();
   return list.reduce((s,e)=> s + Math.max(0, e.amount - (covered[e.id]||0)), 0);
 }
 
 function renderMonthTotal(){
   const monthExp = applyGroupFilter(currentMonthExpenses());
+  const gross = monthExp.reduce((s,e)=>s+e.amount, 0);
   const total = netTotal(monthExp);
+  const recovered = gross - total;
   const s = fmt(total);
   document.getElementById('monthValue').textContent = s;
   // Escala el tamaño para montos grandes (4-5 dígitos) sin desbordar.
@@ -798,6 +824,17 @@ function renderMonthTotal(){
   }
   const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
   document.getElementById('monthLabel').textContent = monthName.charAt(0).toUpperCase()+monthName.slice(1);
+  // Línea de cashback recuperado (solo si esta vista tuvo recuperación este mes).
+  const cbEl = document.getElementById('mtCashback');
+  if(cbEl){
+    if(recovered > 0.005){
+      cbEl.textContent = '💰 Recuperaste S/ ' + fmt(recovered) + ' de cashback';
+      cbEl.style.display = '';
+    } else {
+      cbEl.textContent = '';
+      cbEl.style.display = 'none';
+    }
+  }
   renderMtBudgetPanel();
   renderMtBudgetBar(total);
   renderMtCompare();
@@ -2332,6 +2369,30 @@ document.querySelectorAll('#recSubtabs .cg-tab').forEach(btn=>{
 /* ---------- Página de Cashback ---------- */
 let cbEditingId = null;
 
+// Pills para elegir el grupo "negocio" que NO recibe cashback.
+function renderCbScope(){
+  const box = document.getElementById('cbScopeOpts');
+  if(!box) return;
+  if(catGroups.length === 0){
+    box.innerHTML = '<span class="cb-scope-none">Aún no tienes grupos creados.</span>';
+    return;
+  }
+  let html = '<div class="gt-opt' + (!cashbackExcludeGroup ? ' selected' : '') + '" data-g="">Ninguno</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (cashbackExcludeGroup === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=>{
+      cashbackExcludeGroup = el.getAttribute('data-g') || null;
+      saveCashbackExclude();
+      renderCbScope();
+      renderCashbackList();
+      renderAll();
+    };
+  });
+}
+
 function renderCashbackList(){
   const box = document.getElementById('cashbackList');
   const balanceEl = document.getElementById('cbBalance');
@@ -2343,7 +2404,9 @@ function renderCashbackList(){
   balanceEl.innerHTML =
     'Cashback disponible: S/ ' + fmt(remaining) +
     '<span class="cb-used">De S/ ' + fmt(totalRegistered) + ' registrados en total</span>' +
-    '<span class="cb-used">Usado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) + '</span>';
+    '<span class="cb-used">Recuperado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) + '</span>';
+
+  renderCbScope();
 
   if(cashback.length === 0){
     box.innerHTML = '<div class="empty">Aún no registras cashback. Agrega tu primer retiro con el botón de abajo.</div>';
@@ -2522,6 +2585,7 @@ loadCatGroups();
 loadRecurring();
 loadReminders();
 loadCashback();
+loadCashbackExclude();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);

@@ -50,6 +50,7 @@
       <button class="mt-budget-btn mt-compare-toggle-btn" id="mtCompareToggleBtn" type="button" title="Mostrar/ocultar comparación por categoría">📊</button>
     </div>
     <div class="mt-compare" id="mtCompare"></div>
+    <div class="mt-cashback" id="mtCashback" style="display:none"></div>
     <div class="mt-budget-panel" id="mtBudgetPanel">
       <div class="cd-color-title cd-budget-title" id="mtBudgetTitle">Presupuesto general (opcional)</div>
       <div class="cd-budget-input-wrap">
@@ -312,8 +313,12 @@
   </div>
   <div class="edit-card">
     <div id="cbListWrap">
-      <div class="rec-hint">Registra cada retiro de cashback de tu tarjeta. Ese monto se resta del total general del mes (Predeterminado) hasta agotarse, como si esos gastos ya estuvieran cubiertos.</div>
+      <div class="rec-hint">Registra cada retiro de cashback de tu tarjeta. Se toma como plata recuperada: baja tu total general y tus gastos personales, pero no los de tu negocio (marca cuál es abajo). Solo afecta gastos de la fecha del retiro en adelante.</div>
       <div class="cb-balance" id="cbBalance"></div>
+      <div class="cb-scope-row">
+        <span class="cb-scope-label">Tu negocio (el cashback NO le resta):</span>
+        <div class="group-tag-opts" id="cbScopeOpts"></div>
+      </div>
       <div class="rec-list" id="cashbackList"></div>
       <button class="save-btn rec-add-btn" id="cashbackAddBtn" type="button">+ Nuevo cashback</button>
     </div>
