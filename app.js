@@ -355,6 +355,24 @@ function renderCats(){
   const toggleBtn = document.getElementById('catsEditToggle');
   toggleBtn.textContent = catsEditMode ? '✓ Listo' : '✎ Editar';
   toggleBtn.classList.toggle('active', catsEditMode);
+
+  updateCatNoteHint();
+}
+
+// Quita tildes/mayúsculas para comparar nombres de categoría sin depender del acento exacto.
+function normalizeCatName(s){
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+// Aviso sobre cómo escribir la Nota cuando la categoría elegida es "Canjes" o
+// "Reposición" — el dashboard de Timeless usa esa Nota para calcular qué queda
+// pendiente por llegar de cada producto (ver timeless-crm-proyecto).
+function updateCatNoteHint(){
+  const hint = document.getElementById('catNoteHint');
+  if(!hint) return;
+  const cat = selectedCat ? catById(selectedCat) : null;
+  const name = cat ? normalizeCatName(cat.name) : '';
+  hint.style.display = (name === 'canjes' || name === 'reposicion') ? '' : 'none';
 }
 
 document.getElementById('catsEditToggle').addEventListener('click', ()=>{
