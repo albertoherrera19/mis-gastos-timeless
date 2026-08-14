@@ -829,15 +829,25 @@ function flushCashbackIfDirty(){
 }
 window.addEventListener('online', flushCashbackIfDirty);
 
+// "Canjes"/"Reposición" no son salida de efectivo real: son productos que salen
+// de stock (el dashboard usa la Nota para restar inventario), así que el cashback
+// nunca los cubre ni se muestra como "recuperado" por ellos.
+function isCashbackExemptCategory(catId){
+  const cat = catById(catId);
+  if(!cat) return false;
+  const n = normalizeCatName(cat.name);
+  return n === 'canjes' || n === 'reposicion';
+}
+
 // Simula el consumo cronológico: recorre gastos + retiros de cashback ordenados
 // por fecha y va gastando el crédito disponible. Los gastos del grupo "negocio"
-// (excluido) NO consumen cashback. Devuelve cuánto de cada gasto quedó cubierto
-// ({expenseId: monto}) y cuánto crédito queda sin usar.
+// (excluido) y los de Canjes/Reposición NO consumen cashback. Devuelve cuánto de
+// cada gasto quedó cubierto ({expenseId: monto}) y cuánto crédito queda sin usar.
 function cashbackCoverage(){
   const events = [];
   expenses.forEach(e=> events.push({
     type:'expense', date:new Date(e.date), amount:e.amount, id:e.id,
-    excluded: cashbackExcludeGroup ? expenseInGroup(e, cashbackExcludeGroup) : false
+    excluded: (cashbackExcludeGroup ? expenseInGroup(e, cashbackExcludeGroup) : false) || isCashbackExemptCategory(e.category)
   }));
   cashback.forEach(c=> events.push({type:'cashback', date:new Date(c.date), amount:c.amount}));
   events.sort((a,b)=> a.date - b.date);
