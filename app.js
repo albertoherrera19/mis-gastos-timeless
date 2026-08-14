@@ -839,52 +839,47 @@ function isCashbackExemptCategory(catId){
   return n === 'canjes' || n === 'reposicion';
 }
 
-// Simula el consumo cronológico: recorre gastos + retiros de cashback ordenados
-// por fecha y va gastando el crédito disponible. Los gastos del grupo "negocio"
-// (excluido) y los de Canjes/Reposición NO consumen cashback. Devuelve cuánto de
-// cada gasto quedó cubierto ({expenseId: monto}) y cuánto crédito queda sin usar.
-function cashbackCoverage(){
-  const events = [];
-  expenses.forEach(e=> events.push({
-    type:'expense', date:new Date(e.date), amount:e.amount, id:e.id,
-    excluded: (cashbackExcludeGroup ? expenseInGroup(e, cashbackExcludeGroup) : false) || isCashbackExemptCategory(e.category)
-  }));
-  cashback.forEach(c=> events.push({type:'cashback', date:new Date(c.date), amount:c.amount}));
-  events.sort((a,b)=> a.date - b.date);
-  let credit = 0;
-  const covered = {};
-  events.forEach(ev=>{
-    if(ev.type === 'cashback'){ credit += ev.amount; return; }
-    if(ev.excluded) return; // gastos del negocio: el cashback no les aplica
-    const use = Math.min(credit, ev.amount);
-    if(use > 0){ covered[ev.id] = use; credit -= use; }
-  });
-  return {covered:covered, remaining:credit};
+// Cuánto cashback se retiró en un mes/año dado (suma simple de retiros de ese mes).
+function cashbackInMonth(year, month){
+  return cashback.reduce((s,c)=>{
+    const d = new Date(c.date);
+    return (d.getFullYear() === year && d.getMonth() === month) ? s + c.amount : s;
+  }, 0);
 }
 
-// Cuánto cashback se usó (cubrió gastos) dentro de un mes/año específico.
+// El cashback resta del total del MISMO mes en que se retiró — no se reparte gasto
+// a gasto ni se arrastra a otro mes: si lo que gastaste ese mes (en efectivo real)
+// no alcanza para "absorber" todo el retiro, el resto simplemente no se refleja en
+// ningún mes (para eso existía el crédito acumulado, y Alberto prefiere que no).
+// `list` debe ser de un solo mes (year, month). Excluye del descuento los gastos
+// del grupo "negocio" y los de Canjes/Reposición (nunca bajan por cashback).
+function netTotalDetailed(list, year, month){
+  let coverable = 0, excluded = 0;
+  list.forEach(e=>{
+    const exempt = isCashbackExemptCategory(e.category) || (cashbackExcludeGroup && expenseInGroup(e, cashbackExcludeGroup));
+    if(exempt) excluded += e.amount; else coverable += e.amount;
+  });
+  const cb = cashbackInMonth(year, month);
+  const recovered = Math.min(cb, coverable);
+  return {net: excluded + (coverable - recovered), recovered: recovered, gross: excluded + coverable};
+}
+
+function netTotal(list, year, month){
+  return netTotalDetailed(list, year, month).net;
+}
+
+// Cuánto cashback se recuperó (se reflejó en el total) dentro de un mes/año específico.
 function cashbackUsedInMonth(year, month){
-  const {covered} = cashbackCoverage();
-  let used = 0;
-  expenses.forEach(e=>{
+  const monthExp = expenses.filter(e=>{
     const d = new Date(e.date);
-    if(d.getFullYear() === year && d.getMonth() === month && covered[e.id]) used += covered[e.id];
+    return d.getFullYear() === year && d.getMonth() === month;
   });
-  return used;
-}
-
-// Total neto de una lista de gastos: resta lo cubierto por cashback. Como los
-// gastos del negocio nunca quedan cubiertos, ese grupo se muestra en bruto solo.
-function netTotal(list){
-  const {covered} = cashbackCoverage();
-  return list.reduce((s,e)=> s + Math.max(0, e.amount - (covered[e.id]||0)), 0);
+  return netTotalDetailed(monthExp, year, month).recovered;
 }
 
 function renderMonthTotal(){
   const monthExp = applyGroupFilter(currentMonthExpenses());
-  const gross = monthExp.reduce((s,e)=>s+e.amount, 0);
-  const total = netTotal(monthExp);
-  const recovered = gross - total;
+  const {net: total, recovered} = netTotalDetailed(monthExp, viewYear, viewMonth);
   const s = fmt(total);
   document.getElementById('monthValue').textContent = s;
   // Escala el tamaño para montos grandes (4-5 dígitos) sin desbordar.
@@ -918,7 +913,7 @@ function groupFilteredTotalUpTo(year, month, upToDay){
     const d = new Date(e.date);
     return d.getFullYear() === year && d.getMonth() === month && d.getDate() <= upToDay;
   }));
-  return netTotal(monthExp);
+  return netTotal(monthExp, year, month);
 }
 
 // Indicador ▲/▼ + % del total del mes (general/grupo) vs el mismo tramo de días del
@@ -2467,15 +2462,18 @@ function renderCbScope(){
 function renderCashbackList(){
   const box = document.getElementById('cashbackList');
   const balanceEl = document.getElementById('cbBalance');
-  const {remaining} = cashbackCoverage();
   const totalRegistered = cashback.reduce((s,c)=>s+c.amount, 0);
+  const withdrawnThisMonth = cashbackInMonth(viewYear, viewMonth);
   const usedThisMonth = cashbackUsedInMonth(viewYear, viewMonth);
   const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
 
-  balanceEl.innerHTML =
-    'Cashback disponible: S/ ' + fmt(remaining) +
-    '<span class="cb-used">De S/ ' + fmt(totalRegistered) + ' registrados en total</span>' +
-    '<span class="cb-used">Recuperado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) + '</span>';
+  let html = 'Recuperado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) +
+    '<span class="cb-used">Retirado en ' + cap(monthName) + ': S/ ' + fmt(withdrawnThisMonth) + '</span>' +
+    '<span class="cb-used">De S/ ' + fmt(totalRegistered) + ' registrados en total</span>';
+  if(withdrawnThisMonth - usedThisMonth > 0.005){
+    html += '<span class="cb-used">El cashback se refleja solo dentro de ' + monthName + ' — lo que no alcanzó a cubrirse con gastos de ese mes no pasa al siguiente.</span>';
+  }
+  balanceEl.innerHTML = html;
 
   renderCbScope();
 
