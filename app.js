@@ -364,16 +364,43 @@ function normalizeCatName(s){
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
-// Aviso sobre cómo escribir la Nota cuando la categoría elegida es "Canjes" o
-// "Reposición" — el dashboard de Timeless usa esa Nota para calcular qué queda
-// pendiente por llegar de cada producto (ver timeless-crm-proyecto).
+// Marca visualmente cuál pill está elegida ('product'/'other') en un selector
+// Producto/Otro (reutilizado por el form de agregar y el de editar).
+function renderStockOnlyOpts(containerId, value){
+  const box = document.getElementById(containerId);
+  if(!box) return;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.classList.toggle('selected', el.getAttribute('data-v') === value);
+  });
+}
+
+let selectedStockOnly = null; // 'product' | 'other' — solo aplica si la categoría es Canjes/Reposición
+let lastNoteHintCat = undefined; // detecta cambio real de categoría para no pisar la elección del usuario
+
+// Aviso sobre cómo escribir la Nota + selector Producto/Otro cuando la categoría
+// elegida es "Canjes" o "Reposición": el dashboard de Timeless usa esa Nota para
+// calcular qué queda pendiente por llegar de cada producto (ver timeless-crm-proyecto),
+// y "Producto" hace que este gasto no cuente en ningún total de esta app (no es
+// plata real, es stock que sale) — ver [[timeless-crm-proyecto]].
 function updateCatNoteHint(){
   const hint = document.getElementById('catNoteHint');
   if(!hint) return;
   const cat = selectedCat ? catById(selectedCat) : null;
-  const name = cat ? normalizeCatName(cat.name) : '';
-  hint.style.display = (name === 'canjes' || name === 'reposicion') ? '' : 'none';
+  const isStockCat = cat ? isCashbackExemptCategory(cat.id) : false;
+  hint.style.display = isStockCat ? '' : 'none';
+  if(selectedCat !== lastNoteHintCat){
+    lastNoteHintCat = selectedCat;
+    selectedStockOnly = isStockCat ? 'product' : null;
+  }
+  renderStockOnlyOpts('stockOnlyOpts', selectedStockOnly);
 }
+document.querySelectorAll('#stockOnlyOpts .gt-opt').forEach(el=>{
+  el.addEventListener('click', (ev)=>{
+    ev.stopPropagation();
+    selectedStockOnly = el.getAttribute('data-v');
+    renderStockOnlyOpts('stockOnlyOpts', selectedStockOnly);
+  });
+});
 
 document.getElementById('catsEditToggle').addEventListener('click', ()=>{
   catsEditMode = !catsEditMode;
@@ -829,14 +856,24 @@ function flushCashbackIfDirty(){
 }
 window.addEventListener('online', flushCashbackIfDirty);
 
-// "Canjes"/"Reposición" no son salida de efectivo real: son productos que salen
-// de stock (el dashboard usa la Nota para restar inventario), así que el cashback
-// nunca los cubre ni se muestra como "recuperado" por ellos.
+// "Canjes"/"Reposición" son las categorías donde puede haber productos que salen
+// de stock (el dashboard usa la Nota para restar inventario). Se usa como fallback
+// de `isStockMovement` para gastos viejos, de antes del selector Producto/Otro.
 function isCashbackExemptCategory(catId){
   const cat = catById(catId);
   if(!cat) return false;
   const n = normalizeCatName(cat.name);
   return n === 'canjes' || n === 'reposicion';
+}
+
+// ¿Este gasto es en realidad un producto que salió de stock (no plata real)?
+// `e.stockOnly` es explícito (true=Producto, false=Otro) desde que existe el
+// selector en el formulario; si no está definido (gastos de antes de eso), se
+// asume Producto cuando la categoría es Canjes/Reposición, igual que antes.
+function isStockMovement(e){
+  if(e.stockOnly === true) return true;
+  if(e.stockOnly === false) return false;
+  return isCashbackExemptCategory(e.category);
 }
 
 // Cuánto cashback se retiró en un mes/año dado (suma simple de retiros de ese mes).
@@ -851,13 +888,15 @@ function cashbackInMonth(year, month){
 // a gasto ni se arrastra a otro mes: si lo que gastaste ese mes (en efectivo real)
 // no alcanza para "absorber" todo el retiro, el resto simplemente no se refleja en
 // ningún mes (para eso existía el crédito acumulado, y Alberto prefiere que no).
-// `list` debe ser de un solo mes (year, month). Excluye del descuento los gastos
-// del grupo "negocio" y los de Canjes/Reposición (nunca bajan por cashback).
+// `list` debe ser de un solo mes (year, month). Los productos que salen de stock
+// (isStockMovement) no pesan en nada; los del grupo "negocio" cuentan pero el
+// cashback nunca los cubre.
 function netTotalDetailed(list, year, month){
   let coverable = 0, excluded = 0;
   list.forEach(e=>{
-    const exempt = isCashbackExemptCategory(e.category) || (cashbackExcludeGroup && expenseInGroup(e, cashbackExcludeGroup));
-    if(exempt) excluded += e.amount; else coverable += e.amount;
+    if(isStockMovement(e)) return;
+    const isBusiness = cashbackExcludeGroup && expenseInGroup(e, cashbackExcludeGroup);
+    if(isBusiness) excluded += e.amount; else coverable += e.amount;
   });
   const cb = cashbackInMonth(year, month);
   const recovered = Math.min(cb, coverable);
@@ -976,7 +1015,7 @@ document.getElementById('monthNextBtn').addEventListener('click', ()=>{
 function currentMonthByCategory(){
   const monthExp = applyGroupFilter(currentMonthExpenses());
   const totals = {};
-  monthExp.forEach(e=>{ totals[e.category] = (totals[e.category]||0) + e.amount; });
+  monthExp.forEach(e=>{ if(isStockMovement(e)) return; totals[e.category] = (totals[e.category]||0) + e.amount; });
   const grandTotal = Object.values(totals).reduce((a,b)=>a+b,0);
   const rows = Object.keys(totals)
     .map(id=>{
@@ -1127,6 +1166,7 @@ function dailyTotalsForCategory(catId){
   const totals = new Array(daysInMonth + 1).fill(0); // index 1..daysInMonth
   expenses.forEach(e=>{
     if(e.category !== catId) return;
+    if(isStockMovement(e)) return;
     const d = new Date(e.date);
     if(d.getFullYear() === year && d.getMonth() === month){
       totals[d.getDate()] += e.amount;
@@ -1145,6 +1185,7 @@ function categoryTotalForMonth(catId, year, month, upToDay){
   let t = 0;
   expenses.forEach(e=>{
     if(e.category !== catId) return;
+    if(isStockMovement(e)) return;
     const d = new Date(e.date);
     if(d.getFullYear() === year && d.getMonth() === month && d.getDate() <= cap) t += e.amount;
   });
@@ -1776,7 +1817,7 @@ function monthlySeries(){
   expenses.forEach(e=>{
     const d = new Date(e.date);
     const k = monthKey(d);
-    totals[k] = (totals[k]||0) + e.amount;
+    if(!isStockMovement(e)) totals[k] = (totals[k]||0) + e.amount;
     const first = new Date(d.getFullYear(), d.getMonth(), 1);
     if(first < earliest) earliest = first;
   });
@@ -1855,7 +1896,8 @@ function txHtml(e){
   const cat = catById(e.category) || {icon:'🗂️', name:'Otros'};
   const d = new Date(e.date);
   const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
-  return '<div class="tx" data-id="' + e.id + '"><div class="icon">' + cat.icon + '</div><div class="info"><div class="cat-name">' + cat.name + '</div>' + (e.note ? '<div class="note">' + e.note + '</div>' : '') + '</div><div class="right"><div class="amt">S/ ' + fmt(e.amount) + '</div><div class="date">' + dateStr + '</div></div><div class="edit" data-id="' + e.id + '" title="Editar">✏️</div><div class="del" data-id="' + e.id + '" title="Borrar">✕</div></div>';
+  const stockTag = isStockMovement(e) ? '<span class="tx-stock-tag">📦 no cuenta</span>' : '';
+  return '<div class="tx" data-id="' + e.id + '"><div class="icon">' + cat.icon + '</div><div class="info"><div class="cat-name">' + cat.name + stockTag + '</div>' + (e.note ? '<div class="note">' + e.note + '</div>' : '') + '</div><div class="right"><div class="amt">S/ ' + fmt(e.amount) + '</div><div class="date">' + dateStr + '</div></div><div class="edit" data-id="' + e.id + '" title="Editar">✏️</div><div class="del" data-id="' + e.id + '" title="Borrar">✕</div></div>';
 }
 
 // Filtra el feed según el buscador (nota/categoría, rango de monto, rango de fechas).
@@ -1908,7 +1950,7 @@ function renderFeed(){
     feed.innerHTML = orderedIds.map(id=>{
       const cat = catById(id) || {icon:'🗂️', name:'Otros'};
       const items = groups[id];
-      const total = items.reduce((s,e)=>s+e.amount,0);
+      const total = items.reduce((s,e)=> s + (isStockMovement(e) ? 0 : e.amount), 0);
       const open = feedOpenGroups.has(id);
       return '<div class="feed-group' + (open ? ' open' : '') + '" data-cat="' + id + '">' +
                '<div class="fg-head">' +
@@ -1944,7 +1986,7 @@ function renderFeed(){
 
     feed.innerHTML = order.map(key=>{
       const items = groups[key];
-      const total = items.reduce((s,e)=>s+e.amount,0);
+      const total = items.reduce((s,e)=> s + (isStockMovement(e) ? 0 : e.amount), 0);
       const d = new Date(key + 'T12:00:00');
       const label = d.toLocaleDateString('es-PE', {weekday:'long', day:'2-digit', month:'long'});
       const open = !feedClosedDayGroups.has(key);
@@ -2054,6 +2096,27 @@ function jumpToExpense(id){
 let editingId = null;
 let editSelectedCat = null;
 let editSelectedGroups = [];
+let editSelectedStockOnly = null; // 'product' | 'other'
+let lastEditNoteHintCat = undefined;
+
+function updateEditCatNoteHint(){
+  const hint = document.getElementById('editCatNoteHint');
+  if(!hint) return;
+  const isStockCat = editSelectedCat ? isCashbackExemptCategory(editSelectedCat) : false;
+  hint.style.display = isStockCat ? '' : 'none';
+  if(editSelectedCat !== lastEditNoteHintCat){
+    lastEditNoteHintCat = editSelectedCat;
+    editSelectedStockOnly = isStockCat ? 'product' : null;
+  }
+  renderStockOnlyOpts('editStockOnlyOpts', editSelectedStockOnly);
+}
+document.querySelectorAll('#editStockOnlyOpts .gt-opt').forEach(el=>{
+  el.addEventListener('click', (ev)=>{
+    ev.stopPropagation();
+    editSelectedStockOnly = el.getAttribute('data-v');
+    renderStockOnlyOpts('editStockOnlyOpts', editSelectedStockOnly);
+  });
+});
 function renderEditGroupTag(){
   renderGroupTagOpts('editGroupTagOpts', 'editGroupTagRow', editSelectedGroups, (g)=>{
     if(!g){ editSelectedGroups = []; }
@@ -2072,7 +2135,7 @@ function renderEditCats(){
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (editSelectedCat === cat.id ? ' selected' : '');
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
-    btn.onclick = ()=>{ editSelectedCat = cat.id; renderEditCats(); validateEditForm(); };
+    btn.onclick = ()=>{ editSelectedCat = cat.id; renderEditCats(); updateEditCatNoteHint(); validateEditForm(); };
     grid.appendChild(btn);
   });
 }
@@ -2095,8 +2158,11 @@ function openEditExpense(id){
   di.value = localISO;
   di.max = new Date().toISOString().slice(0,10);
   editSelectedGroups = expenseGroupIds(e);
+  editSelectedStockOnly = isStockMovement(e) ? 'product' : 'other';
+  lastEditNoteHintCat = editSelectedCat; // evita que updateEditCatNoteHint pise el valor real con el default
   renderEditCats();
   renderEditGroupTag();
+  updateEditCatNoteHint();
   validateEditForm();
   const page = document.getElementById('editPage');
   page.classList.add('open');
@@ -2123,6 +2189,7 @@ function saveEditExpense(){
   e.category = editSelectedCat;
   delete e.group; // formato viejo (un solo grupo), reemplazado por `groups`
   if(editSelectedGroups.length) e.groups = editSelectedGroups.slice(); else delete e.groups;
+  if(isCashbackExemptCategory(editSelectedCat)) e.stockOnly = (editSelectedStockOnly === 'product'); else delete e.stockOnly;
   const dv = document.getElementById('editDate').value;
   if(dv){ const dd = new Date(dv + 'T12:00:00'); if(!isNaN(dd.getTime())) e.date = dd.toISOString(); }
   saveExpenses();
@@ -2650,6 +2717,7 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
     date: resolveGastoDate()
   };
   if(selectedGroupTags.length) gasto.groups = selectedGroupTags.slice();
+  if(isCashbackExemptCategory(selectedCat)) gasto.stockOnly = (selectedStockOnly === 'product');
   expenses.push(gasto);
 
   saveExpenses();
@@ -2667,6 +2735,8 @@ document.getElementById('saveBtn').addEventListener('click', ()=>{
   document.getElementById('dateInput').value = '';
   selectedCat = null;
   selectedGroupTags = [];
+  selectedStockOnly = null;
+  lastNoteHintCat = undefined;
   renderCats();
   validateForm();
   renderAll();
