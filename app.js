@@ -1847,6 +1847,7 @@ function renderMonths(){
 // Siempre inicia en 'default' al abrir la app (no se persiste).
 let feedSortMode = 'default';
 const feedOpenGroups = new Set(); // grupos expandidos en el modo por categoría
+const feedClosedDayGroups = new Set(); // días CERRADOS en el modo "Por día" (por defecto todos abiertos)
 let feedSearch = {text:'', min:null, max:null, from:'', to:''}; // filtros del buscador
 
 // Markup de una transacción del feed (compartido por ambos modos).
@@ -1925,6 +1926,44 @@ function renderFeed(){
         group.classList.toggle('open');
         if(group.classList.contains('open')) feedOpenGroups.add(id);
         else feedOpenGroups.delete(id);
+      });
+    });
+  } else if(feedSortMode === 'day'){
+    // Agrupar TODOS los gastos filtrados (todas las categorías juntas) por día,
+    // día más reciente primero, con el total de cada día — para ver de un vistazo
+    // cuánto se gastó en un día puntual, sin importar la categoría.
+    const sorted = [...base].sort((a,b)=> new Date(b.date) - new Date(a.date));
+    const groups = {};
+    const order = [];
+    sorted.forEach(e=>{
+      const d = new Date(e.date);
+      const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+      if(!groups[key]){ groups[key] = []; order.push(key); }
+      groups[key].push(e);
+    });
+
+    feed.innerHTML = order.map(key=>{
+      const items = groups[key];
+      const total = items.reduce((s,e)=>s+e.amount,0);
+      const d = new Date(key + 'T12:00:00');
+      const label = d.toLocaleDateString('es-PE', {weekday:'long', day:'2-digit', month:'long'});
+      const open = !feedClosedDayGroups.has(key);
+      return '<div class="feed-group' + (open ? ' open' : '') + '" data-day="' + key + '">' +
+               '<div class="fg-head">' +
+                 '<span class="fg-icon">📅</span>' +
+                 '<span class="fg-name">' + cap(label) + ' <span class="fg-count">(' + items.length + ')</span></span>' +
+                 '<span class="fg-right"><span class="fg-amt">S/ ' + fmt(total) + '</span><span class="fg-caret">▼</span></span>' +
+               '</div>' +
+               '<div class="fg-body">' + items.map(txHtml).join('') + '</div>' +
+             '</div>';
+    }).join('');
+
+    feed.querySelectorAll('.feed-group').forEach(group=>{
+      group.querySelector('.fg-head').addEventListener('click', ()=>{
+        const key = group.getAttribute('data-day');
+        group.classList.toggle('open');
+        if(group.classList.contains('open')) feedClosedDayGroups.delete(key);
+        else feedClosedDayGroups.add(key);
       });
     });
   } else {
