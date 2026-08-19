@@ -22,7 +22,9 @@
 
 var SHEET_NAME = 'Gastos';
 
-// Recibe cada gasto (POST) y lo agrega como fila nueva.
+// Recibe cada gasto (POST). Si la ID ya existe en la hoja, ACTUALIZA esa fila
+// (así llegan las ediciones hechas en la app, no solo el gasto original);
+// si no existe, la agrega como fila nueva.
 function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
@@ -36,12 +38,20 @@ function doPost(e) {
       sheet.appendRow(['ID', 'Fecha', 'Categoría', 'Monto', 'Nota', 'Registrado en']);
     }
 
-    // Evita duplicar si el mismo gasto se reintenta (misma ID en la columna A).
-    if (data.id && idYaExiste_(sheet, data.id)) {
-      return json_({ ok: true, duplicated: true });
+    var fecha = data.date ? new Date(data.date) : new Date();
+    var fila = data.id ? buscarFila_(sheet, data.id) : -1;
+
+    if (fila > 0) {
+      // Ya existe esa ID: es una edición, actualiza la fila en vez de duplicarla.
+      sheet.getRange(fila, 2, 1, 4).setValues([[
+        fecha,
+        data.category || '',
+        Number(data.amount) || 0,
+        data.note || ''
+      ]]);
+      return json_({ ok: true, updated: true });
     }
 
-    var fecha = data.date ? new Date(data.date) : new Date();
     sheet.appendRow([
       data.id || '',
       fecha,
@@ -71,14 +81,15 @@ function getOrCreateSheet_() {
   return sheet;
 }
 
-function idYaExiste_(sheet, id) {
+// Devuelve el número de fila (1-based) donde está esa ID, o -1 si no existe.
+function buscarFila_(sheet, id) {
   var last = sheet.getLastRow();
-  if (last < 2) return false;
+  if (last < 2) return -1;
   var ids = sheet.getRange(2, 1, last - 1, 1).getValues();
   for (var i = 0; i < ids.length; i++) {
-    if (String(ids[i][0]) === String(id)) return true;
+    if (String(ids[i][0]) === String(id)) return i + 2; // +2: la fila 1 es encabezado
   }
-  return false;
+  return -1;
 }
 
 function json_(obj) {

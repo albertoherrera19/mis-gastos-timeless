@@ -2193,6 +2193,7 @@ function saveEditExpense(){
   const dv = document.getElementById('editDate').value;
   if(dv){ const dd = new Date(dv + 'T12:00:00'); if(!isNaN(dd.getTime())) e.date = dd.toISOString(); }
   saveExpenses();
+  if(typeof queueForSheets === 'function') queueForSheets(e); // sincroniza la edición (mismo id = actualiza la fila)
   // Si el detalle de categoría quedó abierto detrás, refrescarlo con los datos nuevos.
   const catPageOpen = document.getElementById('catDetailPage').classList.contains('open');
   const openCat = cdCatId;
