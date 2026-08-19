@@ -101,6 +101,7 @@ function doPost(e) {
   if (data.type === 'compraFoto')      return handleCompraFoto_(data);
   if (data.type === 'seguimientoGuardar')  return handleSeguimientoGuardar_(data);
   if (data.type === 'seguimientoEliminar') return handleSeguimientoEliminar_(data);
+  if (data.type === 'gastoEliminar')       return handleGastoEliminar_(data);
 
   var lock = LockService.getScriptLock();
   try {
@@ -139,6 +140,25 @@ function doPost(e) {
       new Date()
     ]);
 
+    return json_({ ok: true });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (ignore) {}
+  }
+}
+
+// Borra la fila de un gasto por ID (el usuario lo borró en la app). Fix
+// 19-ago-2026: antes borrar un gasto solo lo quitaba del celular, nunca de
+// Sheets, así que el dashboard lo seguía contando.
+function handleGastoEliminar_(data) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    var sheet = getOrCreateSheet_();
+    var fila = data.id ? findRowById_(sheet, data.id) : -1;
+    if (fila === -1) return json_({ ok: false, error: 'No existe ese ID' });
+    sheet.deleteRow(fila);
     return json_({ ok: true });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
