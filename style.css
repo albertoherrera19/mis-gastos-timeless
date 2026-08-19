@@ -1381,6 +1381,20 @@ body.cd-open{overflow:hidden;}
 .fs-opt.active{color:var(--bone);background:var(--chip);}
 
 /* ---- Buscador y filtros de movimientos ---- */
+.feed-group-filter{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin:0 20px 10px;
+}
+.feed-group-filter-label{
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--muted);
+  font-weight:700;
+}
 .feed-search{
   display:flex;
   gap:8px;

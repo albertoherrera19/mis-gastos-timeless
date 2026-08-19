@@ -642,10 +642,16 @@ function expenseInGroup(e, groupId){
 // gasto puede estar etiquetado a varios grupos a la vez, sin duplicarse en el
 // total general — solo afecta qué grupos lo incluyen en su vista filtrada).
 function applyGroupFilter(list){
-  if(!activeGroup) return list;
-  const g = catGroups.find(x=>x.id === activeGroup);
+  return filterByGroupId(list, activeGroup);
+}
+
+// Igual que applyGroupFilter pero para un grupo cualquiera (no solo el activo);
+// lo usa el filtro secundario del feed para segmentar en modo Predeterminado.
+function filterByGroupId(list, groupId){
+  if(!groupId) return list;
+  const g = catGroups.find(x=>x.id === groupId);
   const cats = g ? g.cats : [];
-  return list.filter(e=> cats.indexOf(e.category) !== -1 || expenseGroupIds(e).indexOf(activeGroup) !== -1);
+  return list.filter(e=> cats.indexOf(e.category) !== -1 || expenseGroupIds(e).indexOf(groupId) !== -1);
 }
 
 // Pills de "Grupo (opcional)" en un formulario (agregar/editar). Multi-selección:
@@ -694,8 +700,9 @@ function renderCatGroups(){
       const g = t.getAttribute('data-g');
       if(g === '__add'){ openGroupEditor(null); return; }
       activeGroup = g || null;
+      feedGroupFilter = null; // al cambiar de pestaña, el filtro secundario del feed se resetea
       renderCatGroups();
-      renderMonthTotal(); renderDonut(); renderBreakdown();
+      renderMonthTotal(); renderDonut(); renderBreakdown(); renderFeed();
     };
   });
   // Link de editar (solo cuando hay un grupo custom activo)
@@ -1902,9 +1909,34 @@ function renderMonths(){
 // Modo de orden de "Movimientos recientes": 'default' (cronológico) o 'category'.
 // Siempre inicia en 'default' al abrir la app (no se persiste).
 let feedSortMode = 'default';
+let feedGroupFilter = null; // filtro secundario del feed en Predeterminado (null = Todos)
 const feedOpenGroups = new Set(); // grupos expandidos en el modo por categoría
 const feedClosedDayGroups = new Set(); // días CERRADOS en el modo "Por día" (por defecto todos abiertos)
 let feedSearch = {text:'', min:null, max:null, from:'', to:''}; // filtros del buscador
+
+// Fila de chips "Ver: Todos / Timeless / Personal" para segmentar SOLO el feed
+// cuando estás en Predeterminado (sin grupo activo). Cuando ya hay un grupo
+// activo en las pestañas de arriba, el feed ya viene filtrado por ese grupo, así
+// que esta fila se oculta (sería redundante).
+function renderFeedGroupFilter(){
+  const row = document.getElementById('feedGroupFilter');
+  const box = document.getElementById('feedGroupFilterOpts');
+  if(!row || !box) return;
+  if(activeGroup || catGroups.length === 0){ row.style.display = 'none'; return; }
+  row.style.display = '';
+  let html = '<div class="gt-opt' + (!feedGroupFilter ? ' selected' : '') + '" data-g="">Todos</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (feedGroupFilter === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=>{
+      feedGroupFilter = el.getAttribute('data-g') || null;
+      renderFeedGroupFilter();
+      renderFeed();
+    };
+  });
+}
 
 // Markup de una transacción del feed (compartido por ambos modos).
 function txHtml(e){
@@ -1935,16 +1967,21 @@ function filterFeedExpenses(list){
 
 function renderFeed(){
   const feed = document.getElementById('feed');
+  renderFeedGroupFilter();
 
   if(expenses.length === 0){
     feed.innerHTML = '<div class="empty">Agrega tu primer gasto arriba 👆</div>';
     return;
   }
 
-  // Movimientos recientes muestra solo el mes que se está viendo (igual que el total y el donut).
-  const monthExpenses = currentMonthExpenses();
+  // Movimientos recientes muestra solo el mes que se está viendo (igual que el
+  // total y el donut) y respeta el grupo: la pestaña activa manda; si estás en
+  // Predeterminado, el chip secundario "Ver:" segmenta solo el feed.
+  const effGroup = activeGroup || feedGroupFilter;
+  const monthExpenses = filterByGroupId(currentMonthExpenses(), effGroup);
   if(monthExpenses.length === 0){
-    feed.innerHTML = '<div class="empty">No tienes movimientos en este mes.</div>';
+    const gName = effGroup ? ((catGroups.find(x=>x.id===effGroup)||{}).name) : null;
+    feed.innerHTML = '<div class="empty">' + (gName ? 'No tienes movimientos de ' + gName + ' en este mes.' : 'No tienes movimientos en este mes.') + '</div>';
     return;
   }
 
