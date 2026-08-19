@@ -510,17 +510,32 @@ function saveSheetsQueue(q){
   try{ localStorage.setItem(SHEETS_PENDING_KEY, JSON.stringify(q)); }catch(e){}
 }
 
+// Id interno de cola (no confundir con el id del gasto): permite tener más de
+// un pendiente para el MISMO gasto (ej. crear y luego borrar offline) sin que
+// al confirmarse uno se descarte por error el otro.
+function newQueueId(){ return 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2); }
+
 function queueForSheets(exp){
   if(!sheetsSyncEnabled()) return;
   const cat = catById(exp.category);
   const q = loadSheetsQueue();
   q.push({
+    _qid: newQueueId(),
     id: exp.id,
     date: exp.date,
     amount: exp.amount,
     category: cat ? cat.name : exp.category,
     note: exp.note || ''
   });
+  saveSheetsQueue(q);
+  flushSheetsQueue();
+}
+
+// Encola el borrado de un gasto en Sheets (mismo webhook, type 'gastoEliminar').
+function queueDeleteForSheets(id){
+  if(!sheetsSyncEnabled()) return;
+  const q = loadSheetsQueue();
+  q.push({ _qid: newQueueId(), type: 'gastoEliminar', id: id });
   saveSheetsQueue(q);
   flushSheetsQueue();
 }
@@ -538,7 +553,7 @@ function flushSheetsQueue(){
     mode: 'no-cors', // evita bloqueos CORS; no necesitamos leer la respuesta
     body: JSON.stringify(item)
   }).then(()=>{
-    const rest = loadSheetsQueue().filter(x=>x.id !== item.id);
+    const rest = loadSheetsQueue().filter(x=> (x._qid || x.id) !== (item._qid || item.id));
     saveSheetsQueue(rest);
     sheetsFlushing = false;
     if(rest.length > 0) flushSheetsQueue(); // sigue con el resto de pendientes
@@ -2023,6 +2038,7 @@ function renderFeed(){
       if(!window.confirm('¿Seguro que quieres borrar este gasto?')) return;
       expenses = expenses.filter(e=>e.id !== id);
       saveExpenses();
+      queueDeleteForSheets(id);
       renderAll();
     };
   });
@@ -2341,6 +2357,7 @@ function toggleRecurringPaid(id){
       if(window.confirm('¿Quitar también el gasto que se había registrado en tus movimientos?')){
         expenses = expenses.filter(e=>e.id !== linked);
         saveExpenses();
+        queueDeleteForSheets(linked);
         renderAll();
       }
     }
@@ -2498,6 +2515,7 @@ function toggleReminderDone(id){
       if(window.confirm('¿Quitar también el gasto que se había registrado en tus movimientos?')){
         expenses = expenses.filter(e=>e.id !== linked);
         saveExpenses();
+        queueDeleteForSheets(linked);
         renderAll();
       }
     }
