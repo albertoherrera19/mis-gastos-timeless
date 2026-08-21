@@ -796,7 +796,7 @@ function renderAll(){
   renderMonthTotal();
   renderDonut();
   renderBreakdown();
-  renderSim();
+  renderSimLauncher();
   renderMonths();
   renderFeed();
 }
@@ -1183,13 +1183,15 @@ function renderBreakdown(){
 }
 
 /* ---------- Simulador de ahorro ----------
-   Sección aparte (entre "Por categoría" y "Comparar meses"). Deja marcar qué
-   gastos del mes eran EVITABLES para calcular cuánto se pudo ahorrar. Es 100%
-   local y separado: NO toca los totales reales, ni Sheets, ni el dashboard.
-   El marcado se guarda por gasto (persiste entre sesiones y meses). Los
-   productos (reposición/canjes) nunca cuentan aquí (no son gasto real). */
-let avoidableIds = [];   // ids de gastos marcados evitables (persistido)
-let simMode = false;     // modo simulación activado (solo en sesión, arranca apagado)
+   Página completa aparte (se abre desde la tarjeta entre "Por categoría" y
+   "Comparar meses"). Deja marcar qué gastos del mes eran EVITABLES para calcular
+   cuánto se pudo ahorrar, con donut de gasto necesario por categoría y un gráfico
+   de barras de ahorro mes a mes. Es 100% local y separado: NO toca los totales
+   reales, ni Sheets, ni el dashboard. El marcado se guarda por gasto (persiste
+   entre sesiones y meses). Los productos (reposición/canjes) nunca cuentan aquí. */
+let avoidableIds = [];       // ids de gastos marcados evitables (persistido)
+let simScope = null;         // grupo elegido DENTRO de la página del simulador (null = Todos)
+const simOpenCats = new Set(); // categorías EXPANDIDAS en la lista de marcado (por defecto todas cerradas)
 
 function loadAvoidable(){
   try{ avoidableIds = JSON.parse(localStorage.getItem(AVOIDABLE_KEY)) || []; }
@@ -1206,32 +1208,142 @@ function toggleAvoidable(id){
   renderSim();
 }
 
-// Gastos del mes en el grupo activo, sin productos (base real para el simulador).
+// Gastos del mes que se está viendo, en el scope del simulador, sin productos.
 function simScopeExpenses(){
-  return applyGroupFilter(currentMonthExpenses()).filter(e=> !isStockMovement(e));
+  return filterByGroupId(currentMonthExpenses(), simScope).filter(e=> !isStockMovement(e));
+}
+
+// Suma evitable de un mes concreto (respetando el scope), para el gráfico mes a mes.
+function avoidableForMonth(year, month){
+  return filterByGroupId(expenses.filter(e=>{
+    const d = new Date(e.date);
+    return d.getFullYear() === year && d.getMonth() === month;
+  }), simScope).filter(e=> !isStockMovement(e) && isAvoidableExpense(e)).reduce((s,e)=> s + e.amount, 0);
+}
+
+// Teaser de la tarjeta lanzadora (usa el grupo activo de la pantalla principal).
+function renderSimLauncher(){
+  const t = document.getElementById('simTease');
+  if(!t) return;
+  const list = applyGroupFilter(currentMonthExpenses()).filter(e=> !isStockMovement(e));
+  const avoid = list.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+  t.textContent = avoid > 0.005
+    ? ('Este mes marcaste S/ ' + fmt(avoid) + ' como evitable')
+    : 'Marca tus gastos evitables y mira cuánto pudiste ahorrar';
+}
+
+function openSimPage(){
+  simScope = activeGroup; // arranca con el grupo que tengas activo en la pantalla principal
+  const page = document.getElementById('simPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+  renderSim();
+}
+function closeSimPage(){
+  const page = document.getElementById('simPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+  renderSimLauncher(); // refresca el teaser por si marcaron cosas
+}
+
+// Chips "Ver: Todos / Timeless / Personal" dentro de la página.
+function renderSimScope(){
+  const box = document.getElementById('simScopeOpts');
+  const row = document.getElementById('simScopeRow');
+  if(!box || !row) return;
+  if(catGroups.length === 0){ row.style.display = 'none'; box.innerHTML = ''; return; }
+  row.style.display = '';
+  let html = '<div class="gt-opt' + (!simScope ? ' selected' : '') + '" data-g="">Todos</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (simScope === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.onclick = ()=>{ simScope = el.getAttribute('data-g') || null; renderSim(); };
+  });
+}
+
+// Donut de GASTO NECESARIO por categoría (lo que quedaría sin lo evitable).
+function renderSimDonut(list){
+  const svg = document.getElementById('simDonutSvg');
+  const legend = document.getElementById('simDonutLegend');
+  const value = document.getElementById('simDonutValue');
+  if(!svg) return;
+  const byCat = {};
+  list.forEach(e=>{ if(isAvoidableExpense(e)) return; byCat[e.category] = (byCat[e.category]||0) + e.amount; });
+  const rows = Object.keys(byCat)
+    .map(id=>{ const c = catById(id) || {id:id, icon:'🗂️', name:'Otros'}; return {id:id, name:c.name, total:byCat[id]}; })
+    .filter(r=>r.total > 0)
+    .sort((a,b)=> b.total - a.total);
+  const grand = rows.reduce((s,r)=> s + r.total, 0);
+  value.textContent = 'S/ ' + fmt(grand);
+  if(grand === 0){ svg.innerHTML = ''; legend.innerHTML = '<div class="sim-donut-empty">Marca gastos para ver el necesario.</div>'; return; }
+  const cx = 60, cy = 60, r = 46, C = 2 * Math.PI * r;
+  let offset = 0, segs = '';
+  rows.forEach(row=>{
+    const len = row.total / grand * C;
+    segs += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + categoryDotColor(row.id) + '" stroke-width="14" stroke-dasharray="' + len + ' ' + (C - len) + '" stroke-dashoffset="' + (-offset) + '"></circle>';
+    offset += len;
+  });
+  svg.innerHTML = segs;
+  legend.innerHTML = rows.map(row=>
+    '<div class="leg"><span class="dot" style="background:' + categoryDotColor(row.id) + '"></span>' + row.name + ' <span class="leg-amt">S/ ' + fmt(row.total) + '</span></div>'
+  ).join('');
+}
+
+// Barras de "cuánto pudiste ahorrar" mes a mes (suma de lo evitable por mes).
+function renderSimMonths(){
+  const barsBox = document.getElementById('simMonthsBars');
+  if(!barsBox) return;
+  const now = new Date();
+  let earliest = new Date(now.getFullYear(), now.getMonth(), 1);
+  expenses.forEach(e=>{ const d = new Date(e.date); const f = new Date(d.getFullYear(), d.getMonth(), 1); if(f < earliest) earliest = f; });
+  const series = [];
+  const cur = new Date(earliest);
+  let guard = 0;
+  while(cur <= now && guard < 240){
+    const y = cur.getFullYear(), m = cur.getMonth();
+    series.push({ year:y, month:m, label: cur.toLocaleDateString('es-PE', {month:'short'}).replace('.',''), avoid: avoidableForMonth(y, m), current: (y === viewYear && m === viewMonth) });
+    cur.setMonth(cur.getMonth() + 1); guard++;
+  }
+  const shown = series.slice(-12);
+  const maxV = Math.max(...shown.map(s=>s.avoid), 1);
+  barsBox.innerHTML = shown.map(s=>{
+    const h = s.avoid > 0 ? Math.max(s.avoid / maxV * 100, 4) : 2;
+    const val = s.avoid > 0 ? ('<span class="val">' + Math.round(s.avoid) + '</span>') : '';
+    return '<div class="mbar sim-mbar' + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
+             '<div class="col" style="height:' + h + '%">' + val + '</div>' +
+             '<div class="mlbl">' + s.label + '</div>' +
+           '</div>';
+  }).join('');
+  barsBox.querySelectorAll('.sim-mbar').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      viewYear = parseInt(el.getAttribute('data-year'), 10);
+      viewMonth = parseInt(el.getAttribute('data-month'), 10);
+      renderAll();   // la pantalla principal detrás también sigue el mes
+      renderSim();   // y el simulador se recalcula para ese mes
+    });
+  });
 }
 
 function renderSim(){
-  const section = document.getElementById('simSection');
-  const body = document.getElementById('simBody');
-  const toggle = document.getElementById('simToggle');
-  if(!section || !body || !toggle) return;
-
-  toggle.textContent = simMode ? 'Desactivar' : 'Activar';
-  toggle.classList.toggle('active', simMode);
-  section.classList.toggle('sim-on', simMode);
-  body.style.display = simMode ? '' : 'none';
-  if(!simMode) return;
+  const page = document.getElementById('simPage');
+  if(!page || !page.classList.contains('open')) return;
+  renderSimScope();
 
   const list = simScopeExpenses();
   const real = list.reduce((s,e)=> s + e.amount, 0);
   const avoidable = list.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
   const necesario = real - avoidable;
-  const scopeName = activeGroup ? ((catGroups.find(x=>x.id===activeGroup)||{}).name || 'grupo') : 'Todos';
+  const scopeName = simScope ? ((catGroups.find(x=>x.id===simScope)||{}).name || 'grupo') : 'Todos';
+  const monthName = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
 
   // Resumen
   document.getElementById('simSummary').innerHTML =
-    '<div class="sim-scope">Simulación · ' + scopeName + '</div>' +
+    '<div class="sim-scope">Simulación · ' + scopeName + ' · ' + monthName + '</div>' +
     '<div class="sim-save">Pudiste ahorrar <span>S/ ' + fmt(avoidable) + '</span></div>' +
     '<div class="sim-totals">' +
       '<span>Gastaste: <b>S/ ' + fmt(real) + '</b></span>' +
@@ -1249,14 +1361,18 @@ function renderSim(){
   const catRows = Object.keys(byCat)
     .map(id=>{ const c = catById(id) || {id:id, icon:'🗂️', name:'Otros'}; return {id:id, icon:c.icon, name:c.name, total:byCat[id].total, avoid:byCat[id].avoid}; })
     .sort((a,b)=> b.avoid - a.avoid || b.total - a.total);
-  const catHtml = catRows.map(c=>{
+  document.getElementById('simCats').innerHTML = catRows.map(c=>{
     const pct = c.total > 0 ? (c.avoid / c.total * 100) : 0;
     const avoidLabel = c.avoid > 0.005 ? '<span class="sim-cat-avoid">−S/ ' + fmt(c.avoid) + '</span>' : '<span class="sim-cat-none">todo necesario</span>';
     return '<div class="sim-cat-row"><span class="icon">' + c.icon + '</span><span class="sim-cat-name">' + c.name + '</span>' + avoidLabel + '<span class="sim-cat-total">de S/ ' + fmt(c.total) + '</span></div>' +
            '<div class="sim-cat-bar"><div class="sim-cat-bar-fill" style="width:' + pct + '%"></div></div>';
   }).join('');
 
-  // Lista de gastos marcables (agrupados por categoría, más reciente primero dentro de cada una)
+  // Gráficos
+  renderSimDonut(list);
+  renderSimMonths();
+
+  // Lista de gastos marcables — agrupada por categoría, COLAPSABLE (arranca cerrada).
   const grouped = {};
   const order = [];
   [...list].sort((a,b)=> new Date(b.date) - new Date(a.date)).forEach(e=>{
@@ -1265,7 +1381,11 @@ function renderSim(){
   });
   const itemsHtml = order.map(catId=>{
     const c = catById(catId) || {icon:'🗂️', name:'Otros'};
-    const rows = grouped[catId].map(e=>{
+    const items = grouped[catId];
+    const catTotal = items.reduce((s,e)=> s + e.amount, 0);
+    const catAvoid = items.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+    const open = simOpenCats.has(catId);
+    const rows = items.map(e=>{
       const marked = isAvoidableExpense(e);
       const d = new Date(e.date);
       const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
@@ -1276,25 +1396,39 @@ function renderSim(){
                '<div class="sim-item-amt">S/ ' + fmt(e.amount) + '</div>' +
              '</div>';
     }).join('');
-    return '<div class="sim-cat-group"><div class="sim-cat-head"><span class="icon">' + c.icon + '</span>' + c.name + '</div>' + rows + '</div>';
+    const avoidTag = catAvoid > 0.005 ? '<span class="sim-cat-hd-avoid">−S/ ' + fmt(catAvoid) + '</span>' : '';
+    return '<div class="sim-cat-group' + (open ? ' open' : '') + '" data-cat="' + catId + '">' +
+             '<div class="sim-cat-head">' +
+               '<span class="sim-caret">▸</span>' +
+               '<span class="icon">' + c.icon + '</span>' +
+               '<span class="sim-cat-hd-name">' + c.name + ' <span class="sim-cat-hd-count">(' + items.length + ')</span></span>' +
+               avoidTag +
+               '<span class="sim-cat-hd-total">S/ ' + fmt(catTotal) + '</span>' +
+             '</div>' +
+             '<div class="sim-cat-items">' + rows + '</div>' +
+           '</div>';
   }).join('');
 
-  document.getElementById('simCats').innerHTML = catRows.length ? catHtml : '';
   const listBox = document.getElementById('simList');
   if(list.length === 0){
-    listBox.innerHTML = '<div class="empty">No hay gastos que simular en este mes' + (activeGroup ? ' para ' + scopeName : '') + '.</div>';
+    listBox.innerHTML = '<div class="empty">No hay gastos que simular en ' + monthName + (simScope ? ' para ' + scopeName : '') + '.</div>';
   } else {
     listBox.innerHTML = '<div class="sim-list-title">Marca lo que pudiste evitar</div>' + itemsHtml;
+    listBox.querySelectorAll('.sim-cat-group').forEach(group=>{
+      group.querySelector('.sim-cat-head').addEventListener('click', ()=>{
+        const id = group.getAttribute('data-cat');
+        group.classList.toggle('open');
+        if(group.classList.contains('open')) simOpenCats.add(id); else simOpenCats.delete(id);
+      });
+    });
     listBox.querySelectorAll('.sim-item').forEach(el=>{
       el.addEventListener('click', ()=> toggleAvoidable(el.getAttribute('data-id')));
     });
   }
 }
 
-document.getElementById('simToggle').addEventListener('click', ()=>{
-  simMode = !simMode;
-  renderSim();
-});
+document.getElementById('simOpenBtn').addEventListener('click', openSimPage);
+document.getElementById('simBack').addEventListener('click', closeSimPage);
 
 /* ---------- Detalle diario por categoría (página completa) ---------- */
 // Suma por día del mes actual, solo para una categoría.

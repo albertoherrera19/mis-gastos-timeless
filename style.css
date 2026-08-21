@@ -703,6 +703,7 @@ input[type="text"]::placeholder{color:var(--muted);}
 .bd-compare.down{color:#5bd98a;background:rgba(74,222,128,.15);}
 
 /* ---- Simulador de ahorro ---- */
+/* Tarjeta lanzadora (entre "Por categoría" y "Comparar meses") */
 .sim-section{
   margin:24px 20px 0;
   background:var(--card);
@@ -710,24 +711,24 @@ input[type="text"]::placeholder{color:var(--muted);}
   border-radius:14px;
   padding:14px;
 }
-.sim-section.sim-on{border-color:#5bd98a;}
 .sim-head{display:flex;align-items:center;gap:10px;}
 .sim-head-text{flex:1;min-width:0;}
 .sim-title{display:block;font-size:14px;font-weight:800;color:var(--bone);}
 .sim-sub{display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4;}
 .sim-toggle{
   flex-shrink:0;
-  background:var(--chip);
-  border:1px solid var(--line);
-  color:var(--muted);
+  background:var(--accent-dim);
+  border:1px solid var(--accent);
+  color:var(--bone);
   font-size:12px;
   font-weight:700;
-  padding:8px 14px;
+  padding:8px 16px;
   border-radius:20px;
   cursor:pointer;
 }
-.sim-toggle.active{background:rgba(74,222,128,.15);border-color:#5bd98a;color:#5bd98a;}
-.sim-body{margin-top:14px;}
+/* Chips de scope dentro de la página */
+.sim-scope-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.sim-scope-label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700;}
 .sim-summary{
   background:rgba(74,222,128,.08);
   border:1px solid rgba(74,222,128,.25);
@@ -749,11 +750,43 @@ input[type="text"]::placeholder{color:var(--muted);}
 .sim-cat-total{font-size:10px;color:var(--muted);font-family:monospace;flex-shrink:0;}
 .sim-cat-bar{height:3px;background:var(--line);border-radius:2px;margin-top:6px;overflow:hidden;}
 .sim-cat-bar-fill{height:100%;background:#ffb27a;}
-.sim-note{font-size:10.5px;color:var(--muted);line-height:1.5;margin-bottom:14px;}
-.sim-list-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:8px;}
-.sim-cat-group{margin-bottom:12px;}
-.sim-cat-head{font-size:12px;font-weight:700;color:var(--bone);margin-bottom:6px;display:flex;align-items:center;gap:6px;}
-.sim-cat-head .icon{font-size:14px;}
+.sim-note{font-size:10.5px;color:var(--muted);line-height:1.5;margin-bottom:16px;}
+/* Gráficos (donut + barras mes a mes) */
+.sim-graphs{margin-bottom:18px;}
+.sim-graph-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin:0 0 8px;}
+.sim-donut-card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:16px 14px;
+  margin-bottom:18px;
+}
+.sim-donut-card .donut-wrap{width:160px;height:160px;}
+.sim-donut-card .leg-amt{font-family:monospace;color:var(--bone);}
+.sim-donut-empty{font-size:12px;color:var(--muted);text-align:center;padding:6px 0;}
+.sim-mbar.current .col{background:#5bd98a;}
+/* Lista de marcado, colapsable por categoría */
+.sim-list-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:10px;}
+.sim-cat-group{
+  margin-bottom:8px;
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:12px;
+  overflow:hidden;
+}
+.sim-cat-head{
+  display:flex;align-items:center;gap:8px;
+  padding:11px 12px;cursor:pointer;
+}
+.sim-caret{font-size:11px;color:var(--muted);transition:transform .15s ease;flex-shrink:0;}
+.sim-cat-group.open .sim-caret{transform:rotate(90deg);}
+.sim-cat-head .icon{font-size:14px;flex-shrink:0;}
+.sim-cat-hd-name{flex:1;font-size:13px;font-weight:700;color:var(--bone);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sim-cat-hd-count{color:var(--muted);font-weight:600;font-size:11px;}
+.sim-cat-hd-avoid{font-size:12px;font-weight:700;color:#ffb27a;font-family:monospace;flex-shrink:0;}
+.sim-cat-hd-total{font-size:13px;font-weight:700;font-family:monospace;color:var(--bone);flex-shrink:0;}
+.sim-cat-items{display:none;padding:0 12px 10px;}
+.sim-cat-group.open .sim-cat-items{display:block;}
 .sim-item{
   display:flex;align-items:center;gap:10px;
   padding:9px 10px;margin-bottom:6px;

@@ -143,15 +143,9 @@
   <div class="sim-head">
     <div class="sim-head-text">
       <span class="sim-title">🧮 Simulador de ahorro</span>
-      <span class="sim-sub">Mira cuánto pudiste ahorrar sin los gastos que no necesitabas</span>
+      <span class="sim-sub" id="simTease">Marca tus gastos evitables y mira cuánto pudiste ahorrar</span>
     </div>
-    <button class="sim-toggle" id="simToggle" type="button">Activar</button>
-  </div>
-  <div class="sim-body" id="simBody" style="display:none">
-    <div class="sim-summary" id="simSummary"></div>
-    <div class="sim-cats" id="simCats"></div>
-    <div class="sim-note">Es solo una simulación tuya: no afecta tus gastos reales, ni el dashboard, ni nada. Se guarda para este mes; puedes cambiar los marcados cuando quieras.</div>
-    <div class="sim-list" id="simList"></div>
+    <button class="sim-toggle" id="simOpenBtn" type="button">Abrir</button>
   </div>
 </div>
 
@@ -376,6 +370,41 @@
       <button class="group-delete-btn" id="cbDeleteBtn" type="button">Eliminar</button>
       <button class="group-delete-btn" id="cbCancelBtn" type="button">Cancelar</button>
     </div>
+  </div>
+</div>
+
+<!-- Simulador de ahorro (página completa) -->
+<div class="cat-detail-page recurring-page" id="simPage" aria-hidden="true" role="dialog">
+  <div class="cd-topbar">
+    <button class="cd-back" id="simBack" aria-label="Volver">←</button>
+    <div class="cd-title"><span class="edit-title">Simulador de ahorro</span></div>
+  </div>
+  <div class="edit-card">
+    <div class="sim-scope-row" id="simScopeRow">
+      <span class="sim-scope-label">Ver:</span>
+      <div class="group-tag-opts" id="simScopeOpts"></div>
+    </div>
+    <div class="sim-summary" id="simSummary"></div>
+    <div class="sim-cats" id="simCats"></div>
+    <div class="sim-note">Es solo una simulación tuya: no afecta tus gastos reales, ni el dashboard, ni nada. Se guarda por mes; puedes cambiar los marcados cuando quieras.</div>
+    <div class="sim-graphs">
+      <div class="sim-graph-title">Gasto necesario por categoría</div>
+      <div class="sim-donut-card">
+        <div class="donut-wrap">
+          <svg id="simDonutSvg" viewBox="0 0 120 120" class="donut-svg" aria-label="Gasto necesario por categoría"></svg>
+          <div class="donut-center">
+            <div class="donut-center-label">Necesario</div>
+            <div class="donut-center-value" id="simDonutValue">S/ 0.00</div>
+          </div>
+        </div>
+        <div class="donut-legend" id="simDonutLegend"></div>
+      </div>
+      <div class="sim-graph-title">Cuánto pudiste ahorrar mes a mes</div>
+      <div class="months-card">
+        <div class="months-bars" id="simMonthsBars"></div>
+      </div>
+    </div>
+    <div class="sim-list" id="simList"></div>
   </div>
 </div>
 
