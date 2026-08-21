@@ -393,18 +393,22 @@
     <div class="sim-cats" id="simCats"></div>
     <div class="sim-note">Es solo una simulación tuya: no afecta tus gastos reales, ni el dashboard, ni nada. Se guarda por mes; puedes cambiar los marcados cuando quieras.</div>
     <div class="sim-graphs">
-      <div class="sim-graph-title">Gasto necesario por categoría</div>
+      <div class="sim-graph-toggle group-tag-opts" id="simGraphToggle">
+        <div class="gt-opt selected" data-mode="necesario">Necesario</div>
+        <div class="gt-opt" data-mode="evitable">Evitable</div>
+      </div>
+      <div class="sim-graph-title" id="simDonutTitle">Gasto necesario por categoría</div>
       <div class="sim-donut-card">
         <div class="donut-wrap">
-          <svg id="simDonutSvg" viewBox="0 0 120 120" class="donut-svg" aria-label="Gasto necesario por categoría"></svg>
+          <svg id="simDonutSvg" viewBox="0 0 120 120" class="donut-svg" aria-label="Gasto por categoría"></svg>
           <div class="donut-center">
-            <div class="donut-center-label">Necesario</div>
+            <div class="donut-center-label" id="simDonutLabel">Necesario</div>
             <div class="donut-center-value" id="simDonutValue">S/ 0.00</div>
           </div>
         </div>
         <div class="donut-legend" id="simDonutLegend"></div>
       </div>
-      <div class="sim-graph-title">Cuánto pudiste ahorrar mes a mes</div>
+      <div class="sim-graph-title" id="simMonthsTitle">Gasto necesario mes a mes</div>
       <div class="months-card">
         <div class="months-bars" id="simMonthsBars"></div>
       </div>

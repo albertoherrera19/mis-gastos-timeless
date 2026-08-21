@@ -1191,6 +1191,7 @@ function renderBreakdown(){
    entre sesiones y meses). Los productos (reposición/canjes) nunca cuentan aquí. */
 let avoidableIds = [];       // ids de gastos marcados evitables (persistido)
 let simScope = null;         // grupo elegido DENTRO de la página del simulador (null = Todos)
+let simGraphMode = 'necesario'; // 'necesario' | 'evitable' — qué muestran el donut y las barras
 const simOpenCats = new Set(); // categorías EXPANDIDAS en la lista de marcado (por defecto todas cerradas)
 
 function loadAvoidable(){
@@ -1213,12 +1214,20 @@ function simScopeExpenses(){
   return filterByGroupId(currentMonthExpenses(), simScope).filter(e=> !isStockMovement(e));
 }
 
-// Suma evitable de un mes concreto (respetando el scope), para el gráfico mes a mes.
-function avoidableForMonth(year, month){
+// Gastos de un mes concreto en el scope, sin productos (base para los totales mes a mes).
+function simMonthList(year, month){
   return filterByGroupId(expenses.filter(e=>{
     const d = new Date(e.date);
     return d.getFullYear() === year && d.getMonth() === month;
-  }), simScope).filter(e=> !isStockMovement(e) && isAvoidableExpense(e)).reduce((s,e)=> s + e.amount, 0);
+  }), simScope).filter(e=> !isStockMovement(e));
+}
+// Suma evitable de un mes concreto (respetando el scope), para el gráfico mes a mes.
+function avoidableForMonth(year, month){
+  return simMonthList(year, month).filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+}
+// Suma NECESARIA de un mes concreto (lo que NO se marcó evitable).
+function necessaryForMonth(year, month){
+  return simMonthList(year, month).filter(e=> !isAvoidableExpense(e)).reduce((s,e)=> s + e.amount, 0);
 }
 
 // Teaser de la tarjeta lanzadora (usa el grupo activo de la pantalla principal).
@@ -1276,21 +1285,41 @@ function renderSimScope(){
   });
 }
 
-// Donut de GASTO NECESARIO por categoría (lo que quedaría sin lo evitable).
+// Chips "Necesario / Evitable" que cambian qué muestran el donut y las barras.
+function renderSimGraphToggle(){
+  document.querySelectorAll('#simGraphToggle .gt-opt').forEach(el=>{
+    el.classList.toggle('selected', el.getAttribute('data-mode') === simGraphMode);
+  });
+  const evit = simGraphMode === 'evitable';
+  document.getElementById('simDonutTitle').textContent = evit ? 'Gasto evitable por categoría' : 'Gasto necesario por categoría';
+  document.getElementById('simDonutLabel').textContent = evit ? 'Evitable' : 'Necesario';
+  document.getElementById('simMonthsTitle').textContent = evit ? 'Cuánto pudiste ahorrar mes a mes' : 'Gasto necesario mes a mes';
+}
+
+// Donut por categoría: modo 'necesario' (lo que quedaría) o 'evitable' (lo que se pudo ahorrar).
 function renderSimDonut(list){
   const svg = document.getElementById('simDonutSvg');
   const legend = document.getElementById('simDonutLegend');
   const value = document.getElementById('simDonutValue');
   if(!svg) return;
+  const evit = simGraphMode === 'evitable';
   const byCat = {};
-  list.forEach(e=>{ if(isAvoidableExpense(e)) return; byCat[e.category] = (byCat[e.category]||0) + e.amount; });
+  list.forEach(e=>{
+    const marked = isAvoidableExpense(e);
+    if(evit ? !marked : marked) return; // en 'evitable' solo los marcados; en 'necesario' solo los no marcados
+    byCat[e.category] = (byCat[e.category]||0) + e.amount;
+  });
   const rows = Object.keys(byCat)
     .map(id=>{ const c = catById(id) || {id:id, icon:'🗂️', name:'Otros'}; return {id:id, name:c.name, total:byCat[id]}; })
     .filter(r=>r.total > 0)
     .sort((a,b)=> b.total - a.total);
   const grand = rows.reduce((s,r)=> s + r.total, 0);
-  value.textContent = 'S/ ' + fmt(grand);
-  if(grand === 0){ svg.innerHTML = ''; legend.innerHTML = '<div class="sim-donut-empty">Marca gastos para ver el necesario.</div>'; return; }
+  fitDonutValue(value, fmt(grand), false); // mismo ajuste de tamaño/posición que el donut principal
+  if(grand === 0){
+    svg.innerHTML = '';
+    legend.innerHTML = '<div class="sim-donut-empty">' + (evit ? 'No marcaste gastos evitables este mes.' : 'Marca gastos para ver el necesario.') + '</div>';
+    return;
+  }
   const cx = 60, cy = 60, r = 46, C = 2 * Math.PI * r;
   let offset = 0, segs = '';
   rows.forEach(row=>{
@@ -1304,10 +1333,11 @@ function renderSimDonut(list){
   ).join('');
 }
 
-// Barras de "cuánto pudiste ahorrar" mes a mes (suma de lo evitable por mes).
+// Barras mes a mes: 'evitable' = cuánto pudiste ahorrar cada mes; 'necesario' = gasto necesario cada mes.
 function renderSimMonths(){
   const barsBox = document.getElementById('simMonthsBars');
   if(!barsBox) return;
+  const evit = simGraphMode === 'evitable';
   const now = new Date();
   let earliest = new Date(now.getFullYear(), now.getMonth(), 1);
   expenses.forEach(e=>{ const d = new Date(e.date); const f = new Date(d.getFullYear(), d.getMonth(), 1); if(f < earliest) earliest = f; });
@@ -1316,15 +1346,16 @@ function renderSimMonths(){
   let guard = 0;
   while(cur <= now && guard < 240){
     const y = cur.getFullYear(), m = cur.getMonth();
-    series.push({ year:y, month:m, label: cur.toLocaleDateString('es-PE', {month:'short'}).replace('.',''), avoid: avoidableForMonth(y, m), current: (y === viewYear && m === viewMonth) });
+    const v = evit ? avoidableForMonth(y, m) : necessaryForMonth(y, m);
+    series.push({ year:y, month:m, label: cur.toLocaleDateString('es-PE', {month:'short'}).replace('.',''), v:v, current: (y === viewYear && m === viewMonth) });
     cur.setMonth(cur.getMonth() + 1); guard++;
   }
   const shown = series.slice(-12);
-  const maxV = Math.max(...shown.map(s=>s.avoid), 1);
+  const maxV = Math.max(...shown.map(s=>s.v), 1);
   barsBox.innerHTML = shown.map(s=>{
-    const h = s.avoid > 0 ? Math.max(s.avoid / maxV * 100, 4) : 2;
-    const val = s.avoid > 0 ? ('<span class="val">' + Math.round(s.avoid) + '</span>') : '';
-    return '<div class="mbar sim-mbar' + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
+    const h = s.v > 0 ? Math.max(s.v / maxV * 100, 4) : 2;
+    const val = s.v > 0 ? ('<span class="val">S/' + Math.round(s.v) + '</span>') : '';
+    return '<div class="mbar sim-mbar' + (evit ? ' evit' : '') + (s.current ? ' current' : '') + '" data-year="' + s.year + '" data-month="' + s.month + '">' +
              '<div class="col" style="height:' + h + '%">' + val + '</div>' +
              '<div class="mlbl">' + s.label + '</div>' +
            '</div>';
@@ -1379,7 +1410,8 @@ function renderSim(){
            '<div class="sim-cat-bar"><div class="sim-cat-bar-fill" style="width:' + pct + '%"></div></div>';
   }).join('');
 
-  // Gráficos
+  // Gráficos (donut + barras mes a mes, según el modo Necesario/Evitable)
+  renderSimGraphToggle();
   renderSimDonut(list);
   renderSimMonths();
 
@@ -1396,6 +1428,7 @@ function renderSim(){
     const catTotal = items.reduce((s,e)=> s + e.amount, 0);
     const catAvoid = items.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
     const open = simOpenCats.has(catId);
+    const allMarked = items.every(isAvoidableExpense);
     const rows = items.map(e=>{
       const marked = isAvoidableExpense(e);
       const d = new Date(e.date);
@@ -1407,6 +1440,7 @@ function renderSim(){
                '<div class="sim-item-amt">S/ ' + fmt(e.amount) + '</div>' +
              '</div>';
     }).join('');
+    const selAll = '<button class="sim-selall" type="button" data-cat="' + catId + '">' + (allMarked ? 'Quitar todos' : 'Marcar todos') + '</button>';
     const avoidTag = catAvoid > 0.005 ? '<span class="sim-cat-hd-avoid">−S/ ' + fmt(catAvoid) + '</span>' : '';
     return '<div class="sim-cat-group' + (open ? ' open' : '') + '" data-cat="' + catId + '">' +
              '<div class="sim-cat-head">' +
@@ -1416,7 +1450,7 @@ function renderSim(){
                avoidTag +
                '<span class="sim-cat-hd-total">S/ ' + fmt(catTotal) + '</span>' +
              '</div>' +
-             '<div class="sim-cat-items">' + rows + '</div>' +
+             '<div class="sim-cat-items">' + selAll + rows + '</div>' +
            '</div>';
   }).join('');
 
@@ -1435,10 +1469,33 @@ function renderSim(){
     listBox.querySelectorAll('.sim-item').forEach(el=>{
       el.addEventListener('click', ()=> toggleAvoidable(el.getAttribute('data-id')));
     });
+    listBox.querySelectorAll('.sim-selall').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        const group = btn.closest('.sim-cat-group');
+        const ids = Array.from(group.querySelectorAll('.sim-item')).map(el=>el.getAttribute('data-id'));
+        simSelectAllCat(ids);
+      });
+    });
   }
 }
 
+// Marca (o desmarca, si ya estaban todos) TODOS los gastos de una categoría de golpe.
+function simSelectAllCat(ids){
+  const allMarked = ids.every(id=> avoidableIds.indexOf(id) !== -1);
+  if(allMarked){
+    avoidableIds = avoidableIds.filter(id=> ids.indexOf(id) === -1);
+  } else {
+    ids.forEach(id=>{ if(avoidableIds.indexOf(id) === -1) avoidableIds.push(id); });
+  }
+  saveAvoidable();
+  renderSim();
+}
+
 document.getElementById('simOpenBtn').addEventListener('click', openSimPage);
+document.querySelectorAll('#simGraphToggle .gt-opt').forEach(el=>{
+  el.addEventListener('click', ()=>{ simGraphMode = el.getAttribute('data-mode'); renderSim(); });
+});
 document.getElementById('simBack').addEventListener('click', closeSimPage);
 document.getElementById('simMonthPrev').addEventListener('click', ()=>{
   viewMonth--;
