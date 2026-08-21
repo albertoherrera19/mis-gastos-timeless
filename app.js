@@ -1249,6 +1249,16 @@ function closeSimPage(){
   renderSimLauncher(); // refresca el teaser por si marcaron cosas
 }
 
+// Flechitas de mes dentro de la página del simulador (‹ Mes ›).
+function renderSimMonthNav(){
+  const label = document.getElementById('simMonthLabel');
+  const nextBtn = document.getElementById('simMonthNext');
+  if(!label || !nextBtn) return;
+  label.textContent = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
+  const now = new Date();
+  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+}
+
 // Chips "Ver: Todos / Timeless / Personal" dentro de la página.
 function renderSimScope(){
   const box = document.getElementById('simScopeOpts');
@@ -1332,6 +1342,7 @@ function renderSimMonths(){
 function renderSim(){
   const page = document.getElementById('simPage');
   if(!page || !page.classList.contains('open')) return;
+  renderSimMonthNav();
   renderSimScope();
 
   const list = simScopeExpenses();
@@ -1429,6 +1440,20 @@ function renderSim(){
 
 document.getElementById('simOpenBtn').addEventListener('click', openSimPage);
 document.getElementById('simBack').addEventListener('click', closeSimPage);
+document.getElementById('simMonthPrev').addEventListener('click', ()=>{
+  viewMonth--;
+  if(viewMonth < 0){ viewMonth = 11; viewYear--; }
+  renderAll();  // la pantalla principal detrás también sigue el mes
+  renderSim();
+});
+document.getElementById('simMonthNext').addEventListener('click', ()=>{
+  const now = new Date();
+  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no ir al futuro
+  viewMonth++;
+  if(viewMonth > 11){ viewMonth = 0; viewYear++; }
+  renderAll();
+  renderSim();
+});
 
 /* ---------- Detalle diario por categoría (página completa) ---------- */
 // Suma por día del mes actual, solo para una categoría.

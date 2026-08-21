@@ -726,6 +726,22 @@ input[type="text"]::placeholder{color:var(--muted);}
   border-radius:20px;
   cursor:pointer;
 }
+/* Flechitas de mes dentro de la página */
+.sim-month-nav{
+  display:flex;align-items:center;justify-content:center;gap:14px;
+  margin-bottom:14px;
+}
+.sim-mn-btn{
+  width:34px;height:34px;flex-shrink:0;
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--bone);
+  font-size:18px;line-height:1;
+  border-radius:50%;
+  cursor:pointer;
+}
+.sim-mn-btn:disabled{opacity:.35;cursor:default;}
+.sim-mn-label{font-size:14px;font-weight:800;color:var(--bone);min-width:150px;text-align:center;}
 /* Chips de scope dentro de la página */
 .sim-scope-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
 .sim-scope-label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700;}
