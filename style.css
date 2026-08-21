@@ -702,6 +702,79 @@ input[type="text"]::placeholder{color:var(--muted);}
 .bd-compare.up{color:#ff8f6b;background:rgba(232,68,44,.16);}
 .bd-compare.down{color:#5bd98a;background:rgba(74,222,128,.15);}
 
+/* ---- Simulador de ahorro ---- */
+.sim-section{
+  margin:24px 20px 0;
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
+}
+.sim-section.sim-on{border-color:#5bd98a;}
+.sim-head{display:flex;align-items:center;gap:10px;}
+.sim-head-text{flex:1;min-width:0;}
+.sim-title{display:block;font-size:14px;font-weight:800;color:var(--bone);}
+.sim-sub{display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4;}
+.sim-toggle{
+  flex-shrink:0;
+  background:var(--chip);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+  padding:8px 14px;
+  border-radius:20px;
+  cursor:pointer;
+}
+.sim-toggle.active{background:rgba(74,222,128,.15);border-color:#5bd98a;color:#5bd98a;}
+.sim-body{margin-top:14px;}
+.sim-summary{
+  background:rgba(74,222,128,.08);
+  border:1px solid rgba(74,222,128,.25);
+  border-radius:12px;
+  padding:12px 14px;
+  margin-bottom:14px;
+}
+.sim-scope{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700;margin-bottom:6px;}
+.sim-save{font-size:14px;color:var(--bone);font-weight:600;}
+.sim-save span{display:block;font-size:26px;font-weight:800;color:#5bd98a;font-family:monospace;margin-top:2px;}
+.sim-totals{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted);}
+.sim-totals b{color:var(--bone);font-family:monospace;}
+.sim-cats{margin-bottom:14px;}
+.sim-cat-row{display:flex;align-items:center;gap:8px;padding:8px 0 0;}
+.sim-cat-row .icon{font-size:14px;width:18px;}
+.sim-cat-name{flex:1;font-size:12px;color:var(--bone);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sim-cat-avoid{font-size:12px;font-weight:700;color:#ffb27a;font-family:monospace;}
+.sim-cat-none{font-size:10px;color:var(--muted);}
+.sim-cat-total{font-size:10px;color:var(--muted);font-family:monospace;flex-shrink:0;}
+.sim-cat-bar{height:3px;background:var(--line);border-radius:2px;margin-top:6px;overflow:hidden;}
+.sim-cat-bar-fill{height:100%;background:#ffb27a;}
+.sim-note{font-size:10.5px;color:var(--muted);line-height:1.5;margin-bottom:14px;}
+.sim-list-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:8px;}
+.sim-cat-group{margin-bottom:12px;}
+.sim-cat-head{font-size:12px;font-weight:700;color:var(--bone);margin-bottom:6px;display:flex;align-items:center;gap:6px;}
+.sim-cat-head .icon{font-size:14px;}
+.sim-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;margin-bottom:6px;
+  background:var(--chip);
+  border:1px solid var(--line);
+  border-radius:10px;
+  cursor:pointer;
+}
+.sim-item .sim-check{
+  flex-shrink:0;width:20px;height:20px;border-radius:6px;
+  border:1.5px solid var(--muted);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;color:#fff;
+}
+.sim-item-info{flex:1;font-size:12px;color:var(--bone);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sim-item-amt{font-size:13px;font-weight:700;font-family:monospace;color:var(--bone);flex-shrink:0;}
+.sim-item.avoid{border-color:#ffb27a;background:rgba(255,178,122,.1);}
+.sim-item.avoid .sim-check{background:#ffb27a;border-color:#ffb27a;color:#3a1e08;}
+.sim-item.avoid .sim-item-info{text-decoration:line-through;color:var(--muted);}
+.sim-item.avoid .sim-item-amt{color:#ffb27a;}
+
 /* ---- Detalle diario por categoría (página completa) ---- */
 .cat-detail-page{
   display:none;

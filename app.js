@@ -54,6 +54,7 @@ const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
 const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
 const CASHBACK_KEY = 'timeless_cashback';
 const CASHBACK_EXCLUDE_KEY = 'timeless_cashback_exclude'; // id del grupo "negocio" que NO recibe cashback
+const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables" para el simulador de ahorro
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -171,7 +172,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -702,7 +703,7 @@ function renderCatGroups(){
       activeGroup = g || null;
       feedGroupFilter = null; // al cambiar de pestaña, el filtro secundario del feed se resetea
       renderCatGroups();
-      renderMonthTotal(); renderDonut(); renderBreakdown(); renderFeed();
+      renderMonthTotal(); renderDonut(); renderBreakdown(); renderSim(); renderFeed();
     };
   });
   // Link de editar (solo cuando hay un grupo custom activo)
@@ -795,6 +796,7 @@ function renderAll(){
   renderMonthTotal();
   renderDonut();
   renderBreakdown();
+  renderSim();
   renderMonths();
   renderFeed();
 }
@@ -1179,6 +1181,120 @@ function renderBreakdown(){
     row.addEventListener('click', ()=> openCategoryDetail(row.getAttribute('data-cat')));
   });
 }
+
+/* ---------- Simulador de ahorro ----------
+   Sección aparte (entre "Por categoría" y "Comparar meses"). Deja marcar qué
+   gastos del mes eran EVITABLES para calcular cuánto se pudo ahorrar. Es 100%
+   local y separado: NO toca los totales reales, ni Sheets, ni el dashboard.
+   El marcado se guarda por gasto (persiste entre sesiones y meses). Los
+   productos (reposición/canjes) nunca cuentan aquí (no son gasto real). */
+let avoidableIds = [];   // ids de gastos marcados evitables (persistido)
+let simMode = false;     // modo simulación activado (solo en sesión, arranca apagado)
+
+function loadAvoidable(){
+  try{ avoidableIds = JSON.parse(localStorage.getItem(AVOIDABLE_KEY)) || []; }
+  catch(e){ avoidableIds = []; }
+}
+function saveAvoidable(){
+  try{ localStorage.setItem(AVOIDABLE_KEY, JSON.stringify(avoidableIds)); }catch(e){}
+}
+function isAvoidableExpense(e){ return avoidableIds.indexOf(e.id) !== -1; }
+function toggleAvoidable(id){
+  const i = avoidableIds.indexOf(id);
+  if(i === -1) avoidableIds.push(id); else avoidableIds.splice(i, 1);
+  saveAvoidable();
+  renderSim();
+}
+
+// Gastos del mes en el grupo activo, sin productos (base real para el simulador).
+function simScopeExpenses(){
+  return applyGroupFilter(currentMonthExpenses()).filter(e=> !isStockMovement(e));
+}
+
+function renderSim(){
+  const section = document.getElementById('simSection');
+  const body = document.getElementById('simBody');
+  const toggle = document.getElementById('simToggle');
+  if(!section || !body || !toggle) return;
+
+  toggle.textContent = simMode ? 'Desactivar' : 'Activar';
+  toggle.classList.toggle('active', simMode);
+  section.classList.toggle('sim-on', simMode);
+  body.style.display = simMode ? '' : 'none';
+  if(!simMode) return;
+
+  const list = simScopeExpenses();
+  const real = list.reduce((s,e)=> s + e.amount, 0);
+  const avoidable = list.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
+  const necesario = real - avoidable;
+  const scopeName = activeGroup ? ((catGroups.find(x=>x.id===activeGroup)||{}).name || 'grupo') : 'Todos';
+
+  // Resumen
+  document.getElementById('simSummary').innerHTML =
+    '<div class="sim-scope">Simulación · ' + scopeName + '</div>' +
+    '<div class="sim-save">Pudiste ahorrar <span>S/ ' + fmt(avoidable) + '</span></div>' +
+    '<div class="sim-totals">' +
+      '<span>Gastaste: <b>S/ ' + fmt(real) + '</b></span>' +
+      '<span>Necesario: <b>S/ ' + fmt(necesario) + '</b></span>' +
+    '</div>';
+
+  // Desglose por categoría (cuánto de evitable hay en cada una)
+  const byCat = {};
+  list.forEach(e=>{
+    const k = e.category;
+    if(!byCat[k]) byCat[k] = {total:0, avoid:0};
+    byCat[k].total += e.amount;
+    if(isAvoidableExpense(e)) byCat[k].avoid += e.amount;
+  });
+  const catRows = Object.keys(byCat)
+    .map(id=>{ const c = catById(id) || {id:id, icon:'🗂️', name:'Otros'}; return {id:id, icon:c.icon, name:c.name, total:byCat[id].total, avoid:byCat[id].avoid}; })
+    .sort((a,b)=> b.avoid - a.avoid || b.total - a.total);
+  const catHtml = catRows.map(c=>{
+    const pct = c.total > 0 ? (c.avoid / c.total * 100) : 0;
+    const avoidLabel = c.avoid > 0.005 ? '<span class="sim-cat-avoid">−S/ ' + fmt(c.avoid) + '</span>' : '<span class="sim-cat-none">todo necesario</span>';
+    return '<div class="sim-cat-row"><span class="icon">' + c.icon + '</span><span class="sim-cat-name">' + c.name + '</span>' + avoidLabel + '<span class="sim-cat-total">de S/ ' + fmt(c.total) + '</span></div>' +
+           '<div class="sim-cat-bar"><div class="sim-cat-bar-fill" style="width:' + pct + '%"></div></div>';
+  }).join('');
+
+  // Lista de gastos marcables (agrupados por categoría, más reciente primero dentro de cada una)
+  const grouped = {};
+  const order = [];
+  [...list].sort((a,b)=> new Date(b.date) - new Date(a.date)).forEach(e=>{
+    if(!grouped[e.category]){ grouped[e.category] = []; order.push(e.category); }
+    grouped[e.category].push(e);
+  });
+  const itemsHtml = order.map(catId=>{
+    const c = catById(catId) || {icon:'🗂️', name:'Otros'};
+    const rows = grouped[catId].map(e=>{
+      const marked = isAvoidableExpense(e);
+      const d = new Date(e.date);
+      const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+      const label = (e.note ? e.note : c.name) + ' · ' + dateStr;
+      return '<div class="sim-item' + (marked ? ' avoid' : '') + '" data-id="' + e.id + '">' +
+               '<div class="sim-check">' + (marked ? '✕' : '') + '</div>' +
+               '<div class="sim-item-info">' + label + '</div>' +
+               '<div class="sim-item-amt">S/ ' + fmt(e.amount) + '</div>' +
+             '</div>';
+    }).join('');
+    return '<div class="sim-cat-group"><div class="sim-cat-head"><span class="icon">' + c.icon + '</span>' + c.name + '</div>' + rows + '</div>';
+  }).join('');
+
+  document.getElementById('simCats').innerHTML = catRows.length ? catHtml : '';
+  const listBox = document.getElementById('simList');
+  if(list.length === 0){
+    listBox.innerHTML = '<div class="empty">No hay gastos que simular en este mes' + (activeGroup ? ' para ' + scopeName : '') + '.</div>';
+  } else {
+    listBox.innerHTML = '<div class="sim-list-title">Marca lo que pudiste evitar</div>' + itemsHtml;
+    listBox.querySelectorAll('.sim-item').forEach(el=>{
+      el.addEventListener('click', ()=> toggleAvoidable(el.getAttribute('data-id')));
+    });
+  }
+}
+
+document.getElementById('simToggle').addEventListener('click', ()=>{
+  simMode = !simMode;
+  renderSim();
+});
 
 /* ---------- Detalle diario por categoría (página completa) ---------- */
 // Suma por día del mes actual, solo para una categoría.
@@ -2822,6 +2938,7 @@ loadRecurring();
 loadReminders();
 loadCashback();
 loadCashbackExclude();
+loadAvoidable();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
