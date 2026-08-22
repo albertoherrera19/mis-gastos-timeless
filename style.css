@@ -354,6 +354,9 @@ input[type="text"]::placeholder{color:var(--muted);}
   cursor:pointer;
   transition:all .15s ease;
   line-height:1.3;
+  -webkit-user-select:none;   /* no seleccionar el texto/emoji al mantener presionado */
+  user-select:none;
+  -webkit-touch-callout:none; /* no mostrar el menú Copiar/Consultar/Traducir de iOS */
 }
 .cat-btn .icon{display:block;font-size:16px;margin-bottom:3px;}
 .cat-btn.selected{
@@ -615,6 +618,41 @@ input[type="text"]::placeholder{color:var(--muted);}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.ok{border-color:#4ade80;}
 .toast.err{border-color:#e8442c;}
+/* Toast con botón "Deshacer" (clickeable, a diferencia del toast normal) */
+.undo-toast{
+  position:fixed;
+  left:50%;
+  bottom:calc(env(safe-area-inset-bottom, 0px) + 26px);
+  transform:translateX(-50%) translateY(20px);
+  background:var(--card);
+  border:1px solid var(--line);
+  color:var(--bone);
+  font-size:13px;
+  font-weight:700;
+  padding:9px 10px 9px 18px;
+  border-radius:24px;
+  box-shadow:0 6px 24px rgba(0,0,0,.5);
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .25s ease, transform .25s ease;
+  z-index:101;
+  max-width:88vw;
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.undo-toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}
+.undo-toast .undo-btn{
+  flex-shrink:0;
+  background:var(--accent-dim);
+  border:1px solid var(--accent);
+  color:var(--bone);
+  font-size:12px;
+  font-weight:800;
+  padding:7px 14px;
+  border-radius:18px;
+  cursor:pointer;
+}
 .rec-subtabs{display:flex;gap:8px;margin-bottom:16px;}
 .rem-pending-banner{
   display:flex;align-items:center;justify-content:space-between;gap:10px;

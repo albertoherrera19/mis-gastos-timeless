@@ -421,7 +421,9 @@ function attachCatDrag(node, id){
   });
 }
 
+let catDragPrevOrder = null; // orden ANTES de este arrastre, para poder deshacer
 function beginCatDrag(node, x, y){
+  catDragPrevOrder = allCategories().map(c=> c.id);
   const rect = node.getBoundingClientRect();
   const clone = node.cloneNode(true);
   clone.className = 'cat-btn cat-drag-clone';
@@ -461,9 +463,20 @@ function endCatDrag(){
   catDrag.node.classList.remove('dragging');
   catDrag = null;
   // Guarda el nuevo orden a partir del DOM (los tiles reales tienen data-id; "Nueva" no).
-  catOrder = Array.from(grid.querySelectorAll('.cat-btn[data-id]')).map(el=> el.dataset.id);
+  const newOrder = Array.from(grid.querySelectorAll('.cat-btn[data-id]')).map(el=> el.dataset.id);
+  const prev = catDragPrevOrder;
+  const changed = !prev || prev.join('|') !== newOrder.join('|');
+  catOrder = newOrder;
   saveCatOrder();
   renderCats();
+  // Botón "Deshacer" para volver al orden anterior (solo si de verdad cambió).
+  if(changed && prev){
+    showUndoToast('Categoría movida', ()=>{
+      catOrder = prev.slice();
+      saveCatOrder();
+      renderCats();
+    });
+  }
 }
 
 // Quita tildes/mayúsculas para comparar nombres de categoría sin depender del acento exacto.
@@ -679,6 +692,20 @@ function showToast(msg, kind){
   t.className = 'toast show' + (kind ? ' ' + kind : '');
   clearTimeout(t._timer);
   t._timer = setTimeout(()=>{ t.className = 'toast'; }, 2600);
+}
+
+// Toast con botón "Deshacer": aparece solo, dura ~6s, y al tocar Deshacer
+// ejecuta onUndo (revierte el cambio) y desaparece.
+function showUndoToast(msg, onUndo){
+  const t = document.getElementById('undoToast');
+  if(!t) return;
+  t.innerHTML = '<span class="undo-msg"></span><button class="undo-btn" type="button">Deshacer</button>';
+  t.querySelector('.undo-msg').textContent = msg;
+  t.className = 'undo-toast show';
+  clearTimeout(t._timer);
+  const hide = ()=>{ t.className = 'undo-toast'; clearTimeout(t._timer); };
+  t.querySelector('.undo-btn').onclick = ()=>{ hide(); if(typeof onUndo === 'function') onUndo(); };
+  t._timer = setTimeout(hide, 6000);
 }
 
 // Botón 💾: fuerza el envío de lo pendiente a Google Sheets.
