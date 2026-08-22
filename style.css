@@ -777,8 +777,10 @@ input[type="text"]::placeholder{color:var(--muted);}
   padding:16px 14px;
   margin-bottom:18px;
 }
-.sim-donut-card .donut-wrap{width:160px;height:160px;}
+.sim-donut-card .donut-wrap{width:180px;height:180px;}
 .sim-donut-card .leg-amt{font-family:monospace;color:var(--bone);}
+.sim-donut-card .donut-legend .leg{cursor:pointer;}
+#simMonthsList{margin-top:12px;}
 .sim-donut-empty{font-size:12px;color:var(--muted);text-align:center;padding:6px 0;}
 /* Toggle Necesario/Evitable de los gráficos */
 .sim-graph-toggle{margin-bottom:14px;}
