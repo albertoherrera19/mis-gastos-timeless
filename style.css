@@ -409,6 +409,35 @@ input[type="text"]::placeholder{color:var(--muted);}
 .cats.editing .cat-edit{
   display:flex;
 }
+/* Arrastrar para reordenar (modo Editar) */
+.cats-drag-hint{
+  font-size:11px;
+  color:var(--muted);
+  background:var(--chip);
+  border:1px solid var(--line);
+  border-radius:8px;
+  padding:7px 10px;
+  margin:-8px 0 12px;
+  line-height:1.4;
+}
+.cats.editing .cat-btn{
+  touch-action:none;      /* que arrastrar no haga scroll de la página */
+  cursor:grab;
+}
+.cats.editing .cat-btn.add-new{cursor:pointer;}
+.cat-btn.dragging{
+  opacity:.35;
+  border-style:dashed;
+}
+.cat-drag-clone{
+  position:fixed;
+  z-index:100;
+  margin:0;
+  pointer-events:none;
+  box-shadow:0 8px 24px rgba(0,0,0,.45);
+  transform:scale(1.06);
+  opacity:.96;
+}
 
 .new-cat-form{
   display:none;

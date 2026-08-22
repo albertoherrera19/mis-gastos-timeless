@@ -51,6 +51,7 @@ const GROUP_BUDGET_KEY = 'timeless_group_budgets';
 const REMINDERS_KEY = 'timeless_reminders';
 const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
 const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
+const CAT_ORDER_KEY = 'timeless_cat_order'; // orden personalizado de la grilla de categorías (ids)
 const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
 const CASHBACK_KEY = 'timeless_cashback';
 const CASHBACK_EXCLUDE_KEY = 'timeless_cashback_exclude'; // id del grupo "negocio" que NO recibe cashback
@@ -89,6 +90,15 @@ function saveDeletedBaseCats(){
   try{ localStorage.setItem(DELETED_BASE_KEY, JSON.stringify(deletedBaseCats)); }catch(e){}
 }
 
+let catOrder = []; // ids en el orden que el usuario acomodó (arrastrando en modo Editar)
+function loadCatOrder(){
+  try{ catOrder = JSON.parse(localStorage.getItem(CAT_ORDER_KEY)) || []; }
+  catch(e){ catOrder = []; }
+}
+function saveCatOrder(){
+  try{ localStorage.setItem(CAT_ORDER_KEY, JSON.stringify(catOrder)); }catch(e){}
+}
+
 let showCatCompare = false; // oculto por defecto; el botón 📊 activa los indicadores ▲/▼ vs. mes anterior
 function loadShowCatCompare(){
   try{ showCatCompare = localStorage.getItem(SHOW_CAT_COMPARE_KEY) === '1'; }
@@ -100,10 +110,21 @@ function saveShowCatCompare(){
 
 function allCategories(){
   const base = BASE_CATEGORIES.filter(c => deletedBaseCats.indexOf(c.id) === -1);
-  return base.concat(customCategories).map(c=>{
+  const list = base.concat(customCategories).map(c=>{
     const ov = catOverrides[c.id];
     return ov ? Object.assign({}, c, ov) : c;
   });
+  // Aplica el orden personalizado si existe; lo que no esté en catOrder queda al
+  // final en su orden natural (Array.sort es estable). Así categorías nuevas
+  // aparecen al final hasta que las muevas.
+  if(catOrder.length){
+    list.sort((a,b)=>{
+      let ia = catOrder.indexOf(a.id); if(ia === -1) ia = Infinity;
+      let ib = catOrder.indexOf(b.id); if(ib === -1) ib = Infinity;
+      return ia - ib;
+    });
+  }
+  return list;
 }
 function catById(id){ return allCategories().find(c=>c.id===id); }
 function fmt(n){ return Number(n).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
@@ -172,7 +193,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY];
 
 function exportBackup(){
   const data = {};
@@ -295,6 +316,7 @@ function renderCats(){
   allCategories().forEach(cat=>{
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (selectedCat===cat.id ? ' selected' : '');
+    btn.dataset.id = cat.id;
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
     // Toggle: un toque selecciona, otro toque sobre la misma la deselecciona.
     // Deshabilitado mientras se editan categorías, para no mezclar "elegir categoría del gasto" con "gestionar categorías".
@@ -344,6 +366,7 @@ function renderCats(){
     };
     btn.appendChild(del);
 
+    if(catsEditMode) attachCatDrag(btn, cat.id);
     grid.appendChild(btn);
   });
 
@@ -357,7 +380,90 @@ function renderCats(){
   toggleBtn.textContent = catsEditMode ? '✓ Listo' : '✎ Editar';
   toggleBtn.classList.toggle('active', catsEditMode);
 
+  const dragHint = document.getElementById('catsDragHint');
+  if(dragHint) dragHint.style.display = catsEditMode ? '' : 'none';
+
   updateCatNoteHint();
+}
+
+/* ---------- Arrastrar para reordenar categorías (solo en modo Editar) ----------
+   Mantén presionada una categoría ~0.3s para "agarrarla", luego arrástrala a su
+   nuevo lugar y suelta. El orden se guarda en CAT_ORDER_KEY. Usa Pointer Events
+   (sirve para toque y mouse). En modo Editar los tiles llevan touch-action:none
+   para que arrastrar no haga scroll de la página. */
+let catDrag = null; // {node, clone, offsetX, offsetY}
+
+function attachCatDrag(node, id){
+  node.addEventListener('pointerdown', (e)=>{
+    // No arrancar arrastre si tocaste el lápiz o la X (esos son tap).
+    if(e.target.closest('.cat-edit') || e.target.closest('.cat-del')) return;
+    const startX = e.clientX, startY = e.clientY;
+    let grabbed = false;
+    const timer = setTimeout(()=>{ grabbed = true; beginCatDrag(node, startX, startY); }, 300);
+    const move = (ev)=>{
+      if(!grabbed){
+        // Si mueve el dedo antes de "agarrar", cancela (fue un toque/deslizar).
+        if(Math.abs(ev.clientX - startX) > 10 || Math.abs(ev.clientY - startY) > 10){ clearTimeout(timer); end(); }
+        return;
+      }
+      ev.preventDefault();
+      dragCatMove(ev);
+    };
+    const up = ()=>{ clearTimeout(timer); if(grabbed) endCatDrag(); end(); };
+    const end = ()=>{
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
+}
+
+function beginCatDrag(node, x, y){
+  const rect = node.getBoundingClientRect();
+  const clone = node.cloneNode(true);
+  clone.className = 'cat-btn cat-drag-clone';
+  clone.style.width = rect.width + 'px';
+  clone.style.height = rect.height + 'px';
+  clone.style.left = rect.left + 'px';
+  clone.style.top = rect.top + 'px';
+  document.body.appendChild(clone);
+  node.classList.add('dragging');
+  catDrag = { node: node, clone: clone, offsetX: x - rect.left, offsetY: y - rect.top };
+  if(navigator.vibrate) { try{ navigator.vibrate(15); }catch(e){} }
+}
+
+function dragCatMove(ev){
+  if(!catDrag) return;
+  catDrag.clone.style.left = (ev.clientX - catDrag.offsetX) + 'px';
+  catDrag.clone.style.top = (ev.clientY - catDrag.offsetY) + 'px';
+  const el = document.elementFromPoint(ev.clientX, ev.clientY);
+  if(!el) return;
+  const tile = el.closest('.cat-btn');
+  if(!tile || tile === catDrag.node) return;
+  const grid = catDrag.node.parentNode;
+  if(tile.parentNode !== grid) return;
+  if(tile.classList.contains('add-new')){
+    grid.insertBefore(catDrag.node, tile); // soltar al final (antes del botón "Nueva")
+    return;
+  }
+  const nodes = Array.from(grid.children);
+  if(nodes.indexOf(tile) < nodes.indexOf(catDrag.node)) grid.insertBefore(catDrag.node, tile);
+  else grid.insertBefore(catDrag.node, tile.nextSibling);
+}
+
+function endCatDrag(){
+  if(!catDrag) return;
+  const grid = catDrag.node.parentNode;
+  if(catDrag.clone && catDrag.clone.parentNode) catDrag.clone.parentNode.removeChild(catDrag.clone);
+  catDrag.node.classList.remove('dragging');
+  catDrag = null;
+  // Guarda el nuevo orden a partir del DOM (los tiles reales tienen data-id; "Nueva" no).
+  catOrder = Array.from(grid.querySelectorAll('.cat-btn[data-id]')).map(el=> el.dataset.id);
+  saveCatOrder();
+  renderCats();
 }
 
 // Quita tildes/mayúsculas para comparar nombres de categoría sin depender del acento exacto.
@@ -3191,6 +3297,7 @@ try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 loadCatOverrides();
 loadDeletedBaseCats();
+loadCatOrder();
 loadCategoryColors();
 loadCategoryBudgets();
 loadGeneralBudget();
