@@ -56,6 +56,8 @@ const SHOW_CAT_COMPARE_KEY = 'timeless_show_cat_compare';
 const CASHBACK_KEY = 'timeless_cashback';
 const CASHBACK_EXCLUDE_KEY = 'timeless_cashback_exclude'; // id del grupo "negocio" que NO recibe cashback
 const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables" para el simulador de ahorro
+const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siempre innecesaria" (simulador)
+const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -193,7 +195,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY];
 
 function exportBackup(){
   const data = {};
@@ -1143,6 +1145,14 @@ function renderMtCompare(){
   }
 }
 
+// Tope para navegar meses hacia ADELANTE: se puede ver/presupuestar hasta
+// diciembre del año en curso (para eso sirve poder adelantarse de mes). No se
+// habilita año próximo todavía; eso se revisa cuando de verdad llegue diciembre.
+function isMaxViewMonth(year, month){
+  const now = new Date();
+  return year === now.getFullYear() && month === 11;
+}
+
 // Etiqueta y flechas de navegación de mes, al costado de "Mis gastos".
 function renderMonthSwitch(){
   const label = document.getElementById('monthSwitchLabel');
@@ -1151,8 +1161,7 @@ function renderMonthSwitch(){
   let full = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'});
   full = full.charAt(0).toUpperCase() + full.slice(1);
   label.textContent = full;
-  const now = new Date();
-  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+  nextBtn.disabled = isMaxViewMonth(viewYear, viewMonth);
 }
 
 document.getElementById('monthPrevBtn').addEventListener('click', ()=>{
@@ -1161,8 +1170,7 @@ document.getElementById('monthPrevBtn').addEventListener('click', ()=>{
   renderAll();
 });
 document.getElementById('monthNextBtn').addEventListener('click', ()=>{
-  const now = new Date();
-  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no se puede ir al futuro
+  if(isMaxViewMonth(viewYear, viewMonth)) return;
   viewMonth++;
   if(viewMonth > 11){ viewMonth = 0; viewYear++; }
   renderAll();
@@ -1322,7 +1330,9 @@ function renderBreakdown(){
    de barras de ahorro mes a mes. Es 100% local y separado: NO toca los totales
    reales, ni Sheets, ni el dashboard. El marcado se guarda por gasto (persiste
    entre sesiones y meses). Los productos (reposición/canjes) nunca cuentan aquí. */
-let avoidableIds = [];       // ids de gastos marcados evitables (persistido)
+let avoidableIds = [];       // ids de gastos marcados evitables a mano (categorías SIN la regla automática)
+let simAutoAvoidCats = [];   // ids de categoría marcadas "siempre innecesaria": todo gasto (existente o nuevo) es evitable por defecto
+let avoidableExceptions = []; // ids de gastos que SÍ son necesarios pese a la regla automática de su categoría
 let simScope = null;         // grupo elegido DENTRO de la página del simulador (null = Todos)
 let simGraphMode = 'necesario'; // 'necesario' | 'evitable' — qué muestran el donut y las barras
 let simActiveCat = null;        // categoría seleccionada en el donut del simulador (null = ninguna)
@@ -1335,11 +1345,78 @@ function loadAvoidable(){
 function saveAvoidable(){
   try{ localStorage.setItem(AVOIDABLE_KEY, JSON.stringify(avoidableIds)); }catch(e){}
 }
-function isAvoidableExpense(e){ return avoidableIds.indexOf(e.id) !== -1; }
+function loadSimAutoAvoidCats(){
+  try{ simAutoAvoidCats = JSON.parse(localStorage.getItem(SIM_AUTO_AVOID_KEY)) || []; }
+  catch(e){ simAutoAvoidCats = []; }
+}
+function saveSimAutoAvoidCats(){
+  try{ localStorage.setItem(SIM_AUTO_AVOID_KEY, JSON.stringify(simAutoAvoidCats)); }catch(e){}
+}
+function loadAvoidableExceptions(){
+  try{ avoidableExceptions = JSON.parse(localStorage.getItem(AVOIDABLE_EXCEPT_KEY)) || []; }
+  catch(e){ avoidableExceptions = []; }
+}
+function saveAvoidableExceptions(){
+  try{ localStorage.setItem(AVOIDABLE_EXCEPT_KEY, JSON.stringify(avoidableExceptions)); }catch(e){}
+}
+
+// Si la categoría del gasto tiene la regla "siempre innecesaria" activa, es
+// evitable por defecto salvo que esté en la lista de excepciones (lo marcaste
+// como necesario a mano). Si no tiene la regla, funciona como antes: solo es
+// evitable si lo marcaste a mano (avoidableIds).
+function isAvoidableExpense(e){
+  if(simAutoAvoidCats.indexOf(e.category) !== -1) return avoidableExceptions.indexOf(e.id) === -1;
+  return avoidableIds.indexOf(e.id) !== -1;
+}
+
 function toggleAvoidable(id){
-  const i = avoidableIds.indexOf(id);
-  if(i === -1) avoidableIds.push(id); else avoidableIds.splice(i, 1);
-  saveAvoidable();
+  const e = expenses.find(x=>x.id===id);
+  if(e && simAutoAvoidCats.indexOf(e.category) !== -1){
+    // Categoría con regla automática: tocar un gasto puntual lo excluye (o lo
+    // vuelve a incluir) de esa regla, sin apagar la regla para el resto.
+    const i = avoidableExceptions.indexOf(id);
+    if(i === -1) avoidableExceptions.push(id); else avoidableExceptions.splice(i, 1);
+    saveAvoidableExceptions();
+  } else {
+    const i = avoidableIds.indexOf(id);
+    if(i === -1) avoidableIds.push(id); else avoidableIds.splice(i, 1);
+    saveAvoidable();
+  }
+  renderSim();
+}
+
+// Activa/desactiva la regla "toda esta categoría es innecesaria". Al activar,
+// todo gasto de esa categoría (los de ahora Y los que agregues después) se
+// marca evitable solo; si desmarcas uno a mano queda como excepción (no vuelve
+// a marcarse por más gastos nuevos que entren). Al desactivar, se "congela" el
+// estado actual (lo que era evitable por la regla pasa a marcado a mano) para
+// no perder nada de golpe, y la categoría vuelve al modo manual de siempre.
+function simToggleAutoAvoidCat(catId){
+  const idx = simAutoAvoidCats.indexOf(catId);
+  if(idx === -1){
+    simAutoAvoidCats.push(catId);
+    // El modo automático se basa solo en la lista de excepciones; limpia
+    // marcas manuales sueltas de esta categoría para no dejar datos huérfanos.
+    avoidableIds = avoidableIds.filter(id=>{
+      const e = expenses.find(x=>x.id===id);
+      return !e || e.category !== catId;
+    });
+    saveAvoidable();
+  } else {
+    simAutoAvoidCats.splice(idx, 1);
+    expenses.forEach(e=>{
+      if(e.category !== catId) return;
+      const wasAvoidable = avoidableExceptions.indexOf(e.id) === -1; // regla activa = evitable salvo excepción
+      if(wasAvoidable && avoidableIds.indexOf(e.id) === -1) avoidableIds.push(e.id);
+    });
+    avoidableExceptions = avoidableExceptions.filter(id=>{
+      const e = expenses.find(x=>x.id===id);
+      return !e || e.category !== catId;
+    });
+    saveAvoidable();
+    saveAvoidableExceptions();
+  }
+  saveSimAutoAvoidCats();
   renderSim();
 }
 
@@ -1398,8 +1475,7 @@ function renderSimMonthNav(){
   const nextBtn = document.getElementById('simMonthNext');
   if(!label || !nextBtn) return;
   label.textContent = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'}));
-  const now = new Date();
-  nextBtn.disabled = (viewYear === now.getFullYear() && viewMonth === now.getMonth());
+  nextBtn.disabled = isMaxViewMonth(viewYear, viewMonth);
 }
 
 // Chips "Ver: Todos / Timeless / Personal" dentro de la página.
@@ -1607,6 +1683,7 @@ function renderSim(){
     const catTotal = items.reduce((s,e)=> s + e.amount, 0);
     const catAvoid = items.filter(isAvoidableExpense).reduce((s,e)=> s + e.amount, 0);
     const open = simOpenCats.has(catId);
+    const isAuto = simAutoAvoidCats.indexOf(catId) !== -1;
     const allMarked = items.every(isAvoidableExpense);
     const rows = items.map(e=>{
       const marked = isAvoidableExpense(e);
@@ -1619,7 +1696,14 @@ function renderSim(){
                '<div class="sim-item-amt">S/ ' + fmt(e.amount) + '</div>' +
              '</div>';
     }).join('');
-    const selAll = '<button class="sim-selall" type="button" data-cat="' + catId + '">' + (allMarked ? 'Quitar todos' : 'Marcar todos') + '</button>';
+    // Sin la regla automática: "Marcar/Quitar todos" (de un solo golpe, solo lo
+    // que hay AHORA) + botón para activar la regla. Con la regla activa: un
+    // solo badge que la muestra prendida y permite apagarla; los gastos NUEVOS
+    // de esta categoría se marcarán solos mientras siga activa.
+    const actions = isAuto
+      ? '<button class="sim-auto-btn on" type="button" data-cat="' + catId + '">🔁 Categoría innecesaria — toca para quitar la regla</button>'
+      : '<button class="sim-selall" type="button" data-cat="' + catId + '">' + (allMarked ? 'Quitar todos' : 'Marcar todos') + '</button>' +
+        '<button class="sim-auto-btn" type="button" data-cat="' + catId + '">🔁 Toda esta categoría es innecesaria</button>';
     const avoidTag = catAvoid > 0.005 ? '<span class="sim-cat-hd-avoid">−S/ ' + fmt(catAvoid) + '</span>' : '';
     return '<div class="sim-cat-group' + (open ? ' open' : '') + '" data-cat="' + catId + '">' +
              '<div class="sim-cat-head">' +
@@ -1629,7 +1713,10 @@ function renderSim(){
                avoidTag +
                '<span class="sim-cat-hd-total">S/ ' + fmt(catTotal) + '</span>' +
              '</div>' +
-             '<div class="sim-cat-items">' + selAll + rows + '</div>' +
+             '<div class="sim-cat-items">' +
+               (isAuto ? '<div class="sim-auto-hint">Los gastos nuevos de esta categoría se marcan evitables solos. Toca uno abajo si alguno sí fue necesario.</div>' : '') +
+               '<div class="sim-cat-actions">' + actions + '</div>' + rows +
+             '</div>' +
            '</div>';
   }).join('');
 
@@ -1654,6 +1741,12 @@ function renderSim(){
         const group = btn.closest('.sim-cat-group');
         const ids = Array.from(group.querySelectorAll('.sim-item')).map(el=>el.getAttribute('data-id'));
         simSelectAllCat(ids);
+      });
+    });
+    listBox.querySelectorAll('.sim-auto-btn').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        simToggleAutoAvoidCat(btn.getAttribute('data-cat'));
       });
     });
   }
@@ -1683,8 +1776,7 @@ document.getElementById('simMonthPrev').addEventListener('click', ()=>{
   renderSim();
 });
 document.getElementById('simMonthNext').addEventListener('click', ()=>{
-  const now = new Date();
-  if(viewYear === now.getFullYear() && viewMonth === now.getMonth()) return; // no ir al futuro
+  if(isMaxViewMonth(viewYear, viewMonth)) return;
   viewMonth++;
   if(viewMonth > 11){ viewMonth = 0; viewYear++; }
   renderAll();
@@ -3335,6 +3427,8 @@ loadReminders();
 loadCashback();
 loadCashbackExclude();
 loadAvoidable();
+loadSimAutoAvoidCats();
+loadAvoidableExceptions();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);

@@ -881,14 +881,37 @@ input[type="text"]::placeholder{color:var(--muted);}
 .sim-cat-hd-total{font-size:13px;font-weight:700;font-family:monospace;color:var(--bone);flex-shrink:0;}
 .sim-cat-items{display:none;padding:0 12px 10px;}
 .sim-cat-group.open .sim-cat-items{display:block;}
+.sim-cat-actions{
+  display:flex;flex-wrap:wrap;gap:8px;
+  margin-bottom:8px;
+}
 .sim-selall{
-  display:inline-block;margin:0 0 8px;
+  display:inline-block;
   background:var(--chip);
   border:1px solid var(--accent);
   color:var(--bone);
   font-size:11px;font-weight:700;
   padding:6px 12px;border-radius:16px;
   cursor:pointer;
+}
+.sim-auto-btn{
+  display:inline-block;
+  background:var(--chip);
+  border:1px dashed var(--muted);
+  color:var(--muted);
+  font-size:11px;font-weight:700;
+  padding:6px 12px;border-radius:16px;
+  cursor:pointer;
+}
+.sim-auto-btn.on{
+  flex:1 1 100%;
+  background:rgba(255,178,122,.14);
+  border:1px solid #ffb27a;
+  color:#ffb27a;
+}
+.sim-auto-hint{
+  font-size:10.5px;color:var(--muted);line-height:1.5;
+  margin-bottom:8px;
 }
 .sim-item{
   display:flex;align-items:center;gap:10px;
