@@ -1289,13 +1289,23 @@ function updateDonutCenter(rows, grandTotal){
   if(pctEl) pctEl.textContent = '';
 }
 
-function renderBreakdown(){
+// A diferencia del donut (que solo dibuja categorías CON gasto), esta lista
+// siempre incluye TODAS las categorías, aunque no tengan gasto este mes —
+// así se puede entrar a cualquiera (aunque esté en S/ 0.00) para configurar
+// o editar su presupuesto, incluso en meses futuros sin datos todavía.
+function currentMonthByCategoryFull(){
   const {rows, grandTotal} = currentMonthByCategory();
+  const withData = {};
+  rows.forEach(r=>{ withData[r.id] = r; });
+  const all = allCategories().map(cat=>
+    withData[cat.id] || {id:cat.id, icon:cat.icon, name:cat.name, total:0, color:catColor(cat.id)}
+  ).sort((a,b)=> b.total - a.total);
+  return {rows: all, grandTotal};
+}
+
+function renderBreakdown(){
+  const {rows, grandTotal} = currentMonthByCategoryFull();
   const container = document.getElementById('breakdown');
-  if(grandTotal === 0){
-    container.innerHTML = '<div class="empty">Aún no registras gastos este mes.</div>';
-    return;
-  }
 
   // Mes anterior al que se está viendo, para el indicador ▲/▼ por categoría.
   // Compara solo el mismo tramo de días en ambos meses (ver compareCutoffDay).
