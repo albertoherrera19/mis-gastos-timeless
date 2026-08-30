@@ -1082,6 +1082,7 @@ body.cd-open{overflow:hidden;}
 .cd-budget-bar.over .bb-fill{background:#e8442c;}
 .cd-budget-bar.warn .bb-label .bb-status{color:#f2c94c;}
 .cd-budget-bar.over .bb-label .bb-status{color:#ff6b6b;}
+.mt-range-bar{cursor:pointer;}
 .cd-swatch{
   display:flex;
   flex-direction:column;

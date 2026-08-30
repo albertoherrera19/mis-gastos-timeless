@@ -2353,6 +2353,7 @@ function rangeGoalSpent(){
 function renderRangeGoal(){
   const tease = document.getElementById('rangeGoalTease');
   const bar = document.getElementById('rangeGoalBar');
+  const mtBar = document.getElementById('mtRangeGoalBar');
   if(!tease) return;
   document.getElementById('rgFrom').value = rangeGoal ? rangeGoal.from : '';
   document.getElementById('rgTo').value = rangeGoal ? rangeGoal.to : '';
@@ -2360,6 +2361,7 @@ function renderRangeGoal(){
   if(!rangeGoal){
     tease.textContent = 'Pon un tope de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)';
     if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
+    if(mtBar){ mtBar.style.display = 'none'; mtBar.innerHTML = ''; }
     return;
   }
   const spent = rangeGoalSpent();
@@ -2377,7 +2379,28 @@ function renderRangeGoal(){
       '<span class="bb-status">' + statusTxt + '</span></div>' +
       '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
   }
+  // Espejo bajo el total del mes: no depende del mes que se esté viendo (viewYear/
+  // viewMonth), siempre muestra la MISMA meta de rango sin importar a qué mes navegue.
+  if(mtBar){
+    const pct = Math.min(spent / rangeGoal.amount * 100, 100);
+    const over = spent > rangeGoal.amount;
+    let state = ''; if(over) state = 'over'; else if(pct >= 80) state = 'warn';
+    const statusTxt = over ? 'Superado (S/ ' + fmt(spent - rangeGoal.amount) + ' de más)' : Math.round(pct) + '%';
+    mtBar.style.display = 'block';
+    mtBar.className = 'cd-budget-bar mt-range-bar show ' + state;
+    mtBar.innerHTML =
+      '<div class="bb-label"><span>📅 ' + fromLbl + '–' + toLbl + ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
+      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  }
 }
+document.getElementById('mtRangeGoalBar').addEventListener('click', ()=>{
+  const section = document.getElementById('rangeGoalSection');
+  const panel = document.getElementById('rgPanel');
+  if(!section) return;
+  section.scrollIntoView({behavior:'smooth', block:'center'});
+  if(panel) panel.classList.add('open');
+});
 document.getElementById('rgOpenBtn').addEventListener('click', ()=>{
   document.getElementById('rgPanel').classList.toggle('open');
 });
