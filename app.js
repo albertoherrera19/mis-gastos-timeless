@@ -2070,8 +2070,10 @@ function openCategoryDetail(catId){
   renderCdColorSwatches(catId);
   document.getElementById('cdColorPanel').classList.remove('open');
 
-  // Presupuesto de la categoría.
-  document.getElementById('cdBudgetInput').value = categoryBudgets[catId] || '';
+  // Presupuesto de la categoría. Ojo: 0 es un presupuesto real ("no gastar nada
+  // en esta categoría"), no lo mismo que no tener presupuesto — no usar `|| ''`.
+  const catBudget = categoryBudgets[catId];
+  document.getElementById('cdBudgetInput').value = (catBudget != null) ? catBudget : '';
   renderBudgetBar(catId, monthTotal);
 
   const page = document.getElementById('catDetailPage');
@@ -2293,29 +2295,32 @@ function toggleShowCatCompare(){
 document.getElementById('mtCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
 document.getElementById('cdCompareToggleBtn').addEventListener('click', toggleShowCatCompare);
 
-// Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto).
+// Dibuja la barra de progreso gastado/límite (o la oculta si no hay presupuesto
+// configurado). Un límite de 0 SÍ es un presupuesto real ("no gastar nada en
+// esta categoría"): se distingue de "sin presupuesto" (undefined), y se dibuja
+// sin dividir entre cero.
 function renderBudgetBar(catId, spent){
   const bar = document.getElementById('cdBudgetBar');
   if(!bar) return;
   const limit = categoryBudgets[catId];
-  if(!(limit > 0)){
+  if(limit === undefined){
     bar.classList.remove('show');
     bar.innerHTML = '';
     return;
   }
-  const pct = spent / limit * 100;
-  const clamped = Math.min(pct, 100);
+  const over = spent > limit;
+  const pct = limit > 0 ? Math.min(spent / limit * 100, 100) : (spent > 0 ? 100 : 0);
   let state = '';
-  if(pct >= 100) state = 'over';
-  else if(pct >= 80) state = 'warn';
-  const statusTxt = pct >= 100
-    ? 'Superado (' + Math.round(pct) + '%)'
+  if(over) state = 'over';
+  else if(limit > 0 && pct >= 80) state = 'warn';
+  const statusTxt = over
+    ? 'Superado (S/ ' + fmt(spent - limit) + ' de más)'
     : Math.round(pct) + '%';
   bar.className = 'cd-budget-bar show ' + state;
   bar.innerHTML =
     '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
     '<span class="bb-status">' + statusTxt + '</span></div>' +
-    '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+    '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
 }
 function themeAccentHex(){
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8442c';
@@ -2378,9 +2383,14 @@ function currentCdMonthTotal(){
 }
 document.getElementById('cdBudgetSave').addEventListener('click', ()=>{
   if(!cdCatId) return;
-  const v = parseFloat(document.getElementById('cdBudgetInput').value);
-  if(v > 0){ categoryBudgets[cdCatId] = v; }
-  else { delete categoryBudgets[cdCatId]; }
+  const raw = document.getElementById('cdBudgetInput').value;
+  // Campo vacío = sin presupuesto (usa "Quitar" para eso). Un número válido
+  // ≥ 0 se guarda tal cual: poner 0 es un tope real de "no gastar nada".
+  if(raw.trim() === ''){ delete categoryBudgets[cdCatId]; }
+  else {
+    const v = parseFloat(raw);
+    if(!isNaN(v) && v >= 0) categoryBudgets[cdCatId] = v;
+  }
   saveCategoryBudgets();
   renderBudgetBar(cdCatId, currentCdMonthTotal());
   document.getElementById('cdColorPanel').classList.remove('open');
