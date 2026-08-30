@@ -912,7 +912,7 @@ function saveGroup(){
   }
   saveCatGroups();
   closeGroupEditor();
-  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown(); renderSim();
 }
 
 function deleteGroup(){
@@ -922,7 +922,7 @@ function deleteGroup(){
   if(activeGroup === editingGroupId) activeGroup = null;
   saveCatGroups();
   closeGroupEditor();
-  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown();
+  renderCatGroups(); renderMonthTotal(); renderDonut(); renderBreakdown(); renderSim();
 }
 
 function renderAll(){
@@ -1297,9 +1297,25 @@ function currentMonthByCategoryFull(){
   const {rows, grandTotal} = currentMonthByCategory();
   const withData = {};
   rows.forEach(r=>{ withData[r.id] = r; });
-  const all = allCategories().map(cat=>
-    withData[cat.id] || {id:cat.id, icon:cat.icon, name:cat.name, total:0, color:catColor(cat.id)}
-  ).sort((a,b)=> b.total - a.total);
+  // Si hay un grupo activo (Timeless/Personal/etc.), el "completo" debe ser
+  // completo DENTRO de ese grupo (sus categorías), no todas las de la app —
+  // si no, al filtrar por grupo se mezclaban categorías de otros grupos.
+  // Se incluye también cualquier categoría que YA tenga gasto en `rows` (por
+  // si un gasto quedó etiquetado a mano a este grupo sin que su categoría
+  // esté oficialmente en group.cats), para no perder ese dato.
+  let catIds;
+  if(activeGroup){
+    const g = catGroups.find(x=>x.id === activeGroup);
+    catIds = g ? g.cats.slice() : [];
+    Object.keys(withData).forEach(id=>{ if(catIds.indexOf(id) === -1) catIds.push(id); });
+  } else {
+    catIds = allCategories().map(c=>c.id);
+  }
+  const all = catIds.map(id=>{
+    if(withData[id]) return withData[id];
+    const cat = catById(id) || {id:id, icon:'🗂️', name:'Otros'};
+    return {id:id, icon:cat.icon, name:cat.name, total:0, color:catColor(id)};
+  }).sort((a,b)=> b.total - a.total);
   return {rows: all, grandTotal};
 }
 
