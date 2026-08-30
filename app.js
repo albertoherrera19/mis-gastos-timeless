@@ -2361,7 +2361,12 @@ function renderRangeGoal(){
   if(!rangeGoal){
     tease.textContent = 'Pon un tope de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)';
     if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
-    if(mtBar){ mtBar.style.display = 'none'; mtBar.innerHTML = ''; }
+    if(mtBar){
+      mtBar.style.display = 'block';
+      mtBar.className = 'cd-budget-bar mt-range-bar show';
+      mtBar.innerHTML = '<div class="bb-label"><span>📅 Meta por rango de fechas</span>' +
+        '<span class="bb-status">✎ Configurar</span></div>';
+    }
     return;
   }
   const spent = rangeGoalSpent();
@@ -2390,20 +2395,26 @@ function renderRangeGoal(){
     mtBar.className = 'cd-budget-bar mt-range-bar show ' + state;
     mtBar.innerHTML =
       '<div class="bb-label"><span>📅 ' + fromLbl + '–' + toLbl + ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
-      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<span class="bb-status">✎ ' + statusTxt + '</span></div>' +
       '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
   }
 }
-document.getElementById('mtRangeGoalBar').addEventListener('click', ()=>{
-  const section = document.getElementById('rangeGoalSection');
-  const panel = document.getElementById('rgPanel');
-  if(!section) return;
-  section.scrollIntoView({behavior:'smooth', block:'center'});
-  if(panel) panel.classList.add('open');
-});
-document.getElementById('rgOpenBtn').addEventListener('click', ()=>{
-  document.getElementById('rgPanel').classList.toggle('open');
-});
+function openRangeGoalPage(){
+  const page = document.getElementById('rangeGoalPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('cd-open');
+  page.scrollTop = 0;
+  renderRangeGoal();
+}
+function closeRangeGoalPage(){
+  const page = document.getElementById('rangeGoalPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('cd-open');
+}
+document.getElementById('mtRangeGoalBar').addEventListener('click', openRangeGoalPage);
+document.getElementById('rgBack').addEventListener('click', closeRangeGoalPage);
 document.getElementById('rgSave').addEventListener('click', ()=>{
   const from = document.getElementById('rgFrom').value;
   const to = document.getElementById('rgTo').value;
@@ -2412,13 +2423,11 @@ document.getElementById('rgSave').addEventListener('click', ()=>{
   if(new Date(from + 'T00:00:00') > new Date(to + 'T00:00:00')){ alert('La fecha de inicio debe ser antes que la fecha final.'); return; }
   rangeGoal = {from: from, to: to, amount: amount};
   saveRangeGoal();
-  document.getElementById('rgPanel').classList.remove('open');
   renderRangeGoal();
 });
 document.getElementById('rgClear').addEventListener('click', ()=>{
   rangeGoal = null;
   saveRangeGoal();
-  document.getElementById('rgPanel').classList.remove('open');
   renderRangeGoal();
 });
 
