@@ -529,6 +529,17 @@ document.getElementById('catsEditToggle').addEventListener('click', ()=>{
   renderCats();
 });
 
+// Grupo elegido en el form de categoría (crear/editar). Selección ÚNICA (a
+// diferencia del "Grupo" de un gasto, que permite varios): una categoría vive
+// en un solo grupo desde acá. null = Ninguno.
+let catFormGroupId = null;
+function renderCatFormGroupTag(){
+  renderGroupTagOpts('catGroupTagOpts', 'catGroupTagRow', catFormGroupId ? [catFormGroupId] : [], (g)=>{
+    catFormGroupId = g; // siempre reemplaza (no alterna) para que sea selección única
+    renderCatFormGroupTag();
+  });
+}
+
 function openCatForm(editCat){
   const form = document.getElementById('newCatForm');
   const nameInp = document.getElementById('newCatName');
@@ -539,18 +550,23 @@ function openCatForm(editCat){
     nameInp.value = editCat.name;
     emojiInp.value = editCat.icon;
     confirmBtn.textContent = 'Guardar cambios';
+    const g = catGroups.find(x=> x.cats.indexOf(editCat.id) !== -1);
+    catFormGroupId = g ? g.id : null;
   } else {
     catFormEditId = null;
     nameInp.value = '';
     emojiInp.value = '';
     confirmBtn.textContent = 'Crear categoría';
+    catFormGroupId = null;
   }
+  renderCatFormGroupTag();
   form.classList.add('open');
   nameInp.focus();
 }
 
 function closeCatForm(){
   catFormEditId = null;
+  catFormGroupId = null;
   document.getElementById('newCatForm').classList.remove('open');
   document.getElementById('newCatName').value = '';
   document.getElementById('newCatEmoji').value = '';
@@ -564,6 +580,7 @@ document.getElementById('confirmNewCat').addEventListener('click', ()=>{
   const emoji = document.getElementById('newCatEmoji').value.trim() || '🏷️';
   if(!name) return;
 
+  let catId = catFormEditId;
   if(catFormEditId){
     const cat = allCategories().find(c=>c.id === catFormEditId);
     if(cat && cat.base){
@@ -578,14 +595,25 @@ document.getElementById('confirmNewCat').addEventListener('click', ()=>{
       }
     }
   } else {
-    customCategories.push({
-      id: 'custom_' + Date.now(),
-      name: name,
-      icon: emoji,
-      base: false
-    });
+    const newCat = { id: 'custom_' + Date.now(), name: name, icon: emoji, base: false };
+    customCategories.push(newCat);
     saveCustomCategories();
+    catId = newCat.id;
   }
+
+  // Sincroniza el grupo de la categoría: la saca de cualquier grupo donde
+  // estuviera y la mete en el elegido (si eligió alguno) — así también se
+  // puede cambiar de grupo desde acá, sin tener que ir al editor del grupo.
+  let groupsChanged = false;
+  catGroups.forEach(g=>{
+    const i = g.cats.indexOf(catId);
+    if(i !== -1 && g.id !== catFormGroupId){ g.cats.splice(i, 1); groupsChanged = true; }
+  });
+  if(catFormGroupId){
+    const g = catGroups.find(x=>x.id === catFormGroupId);
+    if(g && g.cats.indexOf(catId) === -1){ g.cats.push(catId); groupsChanged = true; }
+  }
+  if(groupsChanged) saveCatGroups();
 
   closeCatForm();
   renderCats();

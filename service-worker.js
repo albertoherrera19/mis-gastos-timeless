@@ -1,6 +1,6 @@
 // Service worker básico: cachea los archivos para uso offline tras la primera visita.
 const CACHE_PREFIX = 'mis-gastos-personal-';
-const CACHE = CACHE_PREFIX + 'v47';
+const CACHE = CACHE_PREFIX + 'v48';
 const ASSETS = [
   './',
   './index.html',
