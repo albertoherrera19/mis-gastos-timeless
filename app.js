@@ -58,6 +58,7 @@ const CASHBACK_EXCLUDE_KEY = 'timeless_cashback_exclude'; // id del grupo "negoc
 const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables" para el simulador de ahorro
 const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siempre innecesaria" (simulador)
 const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
+const RANGE_GOAL_KEY = 'timeless_range_goal'; // meta puntual de gasto entre dos fechas (puede cruzar de un mes a otro)
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -195,7 +196,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY];
 
 function exportBackup(){
   const data = {};
@@ -960,6 +961,7 @@ function renderAll(){
   renderDonut();
   renderBreakdown();
   renderSimLauncher();
+  renderRangeGoal();
   renderMonths();
   renderFeed();
 }
@@ -2321,6 +2323,82 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
   document.getElementById('mtBudgetInput').value = '';
   renderMonthTotal();
 });
+
+/* ----- Meta por rango de fechas (opcional) -----
+   A diferencia del presupuesto general/por categoría (siempre mes calendario),
+   esta es una meta PUNTUAL entre dos fechas cualquiera, aunque crucen de un
+   mes a otro (ej. ciclo de tarjeta: 25 de un mes al 12 del siguiente). Solo
+   una activa a la vez; se reemplaza/borra cuando ya no aplica. Cuenta el
+   gasto real (sin productos), sin importar el grupo activo — es un tope
+   general para ese período. */
+let rangeGoal = null; // {from:'YYYY-MM-DD', to:'YYYY-MM-DD', amount:Number} | null
+function loadRangeGoal(){
+  try{ rangeGoal = JSON.parse(localStorage.getItem(RANGE_GOAL_KEY)) || null; }
+  catch(e){ rangeGoal = null; }
+}
+function saveRangeGoal(){
+  try{
+    if(rangeGoal) localStorage.setItem(RANGE_GOAL_KEY, JSON.stringify(rangeGoal));
+    else localStorage.removeItem(RANGE_GOAL_KEY);
+  }catch(e){}
+}
+function rangeGoalSpent(){
+  if(!rangeGoal) return 0;
+  const from = new Date(rangeGoal.from + 'T00:00:00');
+  const to = new Date(rangeGoal.to + 'T23:59:59');
+  return expenses
+    .filter(e=>{ const d = new Date(e.date); return d >= from && d <= to && !isStockMovement(e); })
+    .reduce((s,e)=> s + e.amount, 0);
+}
+function renderRangeGoal(){
+  const tease = document.getElementById('rangeGoalTease');
+  const bar = document.getElementById('rangeGoalBar');
+  if(!tease) return;
+  document.getElementById('rgFrom').value = rangeGoal ? rangeGoal.from : '';
+  document.getElementById('rgTo').value = rangeGoal ? rangeGoal.to : '';
+  document.getElementById('rgAmount').value = rangeGoal ? rangeGoal.amount : '';
+  if(!rangeGoal){
+    tease.textContent = 'Pon un tope de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)';
+    if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
+    return;
+  }
+  const spent = rangeGoalSpent();
+  const fromLbl = new Date(rangeGoal.from + 'T12:00:00').toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+  const toLbl = new Date(rangeGoal.to + 'T12:00:00').toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+  tease.textContent = 'Del ' + fromLbl + ' al ' + toLbl + ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount);
+  if(bar){
+    const pct = Math.min(spent / rangeGoal.amount * 100, 100);
+    const over = spent > rangeGoal.amount;
+    let state = ''; if(over) state = 'over'; else if(pct >= 80) state = 'warn';
+    const statusTxt = over ? 'Superado (S/ ' + fmt(spent - rangeGoal.amount) + ' de más)' : Math.round(pct) + '%';
+    bar.className = 'cd-budget-bar show ' + state;
+    bar.innerHTML =
+      '<div class="bb-label"><span>S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
+      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  }
+}
+document.getElementById('rgOpenBtn').addEventListener('click', ()=>{
+  document.getElementById('rgPanel').classList.toggle('open');
+});
+document.getElementById('rgSave').addEventListener('click', ()=>{
+  const from = document.getElementById('rgFrom').value;
+  const to = document.getElementById('rgTo').value;
+  const amount = parseFloat(document.getElementById('rgAmount').value);
+  if(!from || !to || !(amount > 0)){ alert('Completa fecha inicio, fecha fin y un monto válido.'); return; }
+  if(new Date(from + 'T00:00:00') > new Date(to + 'T00:00:00')){ alert('La fecha de inicio debe ser antes que la fecha final.'); return; }
+  rangeGoal = {from: from, to: to, amount: amount};
+  saveRangeGoal();
+  document.getElementById('rgPanel').classList.remove('open');
+  renderRangeGoal();
+});
+document.getElementById('rgClear').addEventListener('click', ()=>{
+  rangeGoal = null;
+  saveRangeGoal();
+  document.getElementById('rgPanel').classList.remove('open');
+  renderRangeGoal();
+});
+
 // Compartido por el botón 📊 del header y el de dentro de cada categoría.
 function toggleShowCatCompare(){
   showCatCompare = !showCatCompare;
@@ -3493,6 +3571,7 @@ loadCashbackExclude();
 loadAvoidable();
 loadSimAutoAvoidCats();
 loadAvoidableExceptions();
+loadRangeGoal();
 loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);

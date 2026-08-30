@@ -157,6 +157,31 @@
   </div>
 </div>
 
+<div class="sim-section" id="rangeGoalSection">
+  <div class="sim-head">
+    <div class="sim-head-text">
+      <span class="sim-title">📅 Meta por rango de fechas</span>
+      <span class="sim-sub" id="rangeGoalTease">Pon un tope de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)</span>
+    </div>
+    <button class="sim-toggle" id="rgOpenBtn" type="button">Configurar</button>
+  </div>
+  <div class="cd-budget-bar" id="rangeGoalBar"></div>
+  <div class="mt-budget-panel rg-panel" id="rgPanel">
+    <div class="cd-color-title cd-budget-title">Del día... al día...</div>
+    <div class="rg-dates-row">
+      <label class="rg-date-field"><span>Desde</span><input type="date" id="rgFrom" class="date-input"></label>
+      <label class="rg-date-field"><span>Hasta</span><input type="date" id="rgTo" class="date-input"></label>
+    </div>
+    <div class="cd-color-title cd-budget-title">Monto máximo</div>
+    <div class="cd-budget-input-wrap">
+      <span class="cd-budget-cur">S/</span>
+      <input type="number" id="rgAmount" placeholder="0.00" inputmode="decimal" step="0.01">
+      <button class="cd-budget-btn" id="rgSave" type="button">Guardar</button>
+      <button class="cd-budget-btn cd-budget-clear" id="rgClear" type="button">Quitar</button>
+    </div>
+  </div>
+</div>
+
 <div class="section-title">Comparar meses</div>
 <div class="months-card" id="monthsCard">
   <div class="months-bars" id="monthsBars"></div>
