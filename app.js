@@ -46,8 +46,9 @@ const CAT_COLOR_KEY = 'timeless_category_colors';
 const BUDGET_KEY = 'timeless_category_budgets';
 const GROUPS_KEY = 'timeless_cat_groups';
 const RECURRING_KEY = 'timeless_recurring';
-const GENERAL_BUDGET_KEY = 'timeless_general_budget';
-const GROUP_BUDGET_KEY = 'timeless_group_budgets';
+const GENERAL_BUDGET_KEY = 'timeless_general_budget'; // legado: presupuesto recurrente (pre-migración a por-mes)
+const GROUP_BUDGET_KEY = 'timeless_group_budgets'; // legado: igual que arriba, por grupo
+const MONTH_BUDGET_KEY = 'timeless_month_budgets';
 const REMINDERS_KEY = 'timeless_reminders';
 const CAT_OVERRIDE_KEY = 'timeless_cat_overrides';
 const DELETED_BASE_KEY = 'timeless_deleted_base_cats';
@@ -196,7 +197,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY];
 
 function exportBackup(){
   const data = {};
@@ -2232,26 +2233,45 @@ function saveCategoryBudgets(){
   try{ localStorage.setItem(BUDGET_KEY, JSON.stringify(categoryBudgets)); }catch(e){}
 }
 
-/* ----- Presupuesto general del mes y por grupo (opcional) ----- */
-let generalBudget = null;   // número o null
-let groupBudgets = {};      // { groupId: monto }
+/* ----- Presupuesto general del mes y por grupo (opcional) -----
+   Es POR MES: lo que pongas viendo septiembre solo aplica a septiembre. Cada
+   mes guarda su propio valor (general y por grupo) en monthBudgets, bajo una
+   llave 'YYYY-MM'. Antes era un solo valor recurrente para todos los meses;
+   ese valor legado se migra una sola vez al mes real en que se cargue la app
+   (ver migrateLegacyRecurringBudgets). */
+let monthBudgets = {}; // { 'YYYY-MM': { general: monto, [groupId]: monto } }
 
-function loadGeneralBudget(){
-  const v = parseFloat(localStorage.getItem(GENERAL_BUDGET_KEY));
-  generalBudget = (v > 0) ? v : null;
+function budgetMonthKey(year, month){
+  return year + '-' + String(month + 1).padStart(2, '0');
 }
-function saveGeneralBudget(){
-  try{
-    if(generalBudget > 0) localStorage.setItem(GENERAL_BUDGET_KEY, String(generalBudget));
-    else localStorage.removeItem(GENERAL_BUDGET_KEY);
-  }catch(e){}
+function loadMonthBudgets(){
+  try{ monthBudgets = JSON.parse(localStorage.getItem(MONTH_BUDGET_KEY)) || {}; }
+  catch(e){ monthBudgets = {}; }
+  migrateLegacyRecurringBudgets();
 }
-function loadGroupBudgets(){
-  try{ groupBudgets = JSON.parse(localStorage.getItem(GROUP_BUDGET_KEY)) || {}; }
-  catch(e){ groupBudgets = {}; }
+function saveMonthBudgets(){
+  try{ localStorage.setItem(MONTH_BUDGET_KEY, JSON.stringify(monthBudgets)); }catch(e){}
 }
-function saveGroupBudgets(){
-  try{ localStorage.setItem(GROUP_BUDGET_KEY, JSON.stringify(groupBudgets)); }catch(e){}
+// Migración única: el presupuesto recurrente viejo (un solo valor para todos
+// los meses) se traslada al mes real de hoy, y se borran las llaves viejas
+// para que esto no se repita en cada carga.
+function migrateLegacyRecurringBudgets(){
+  const legacyGeneral = parseFloat(localStorage.getItem(GENERAL_BUDGET_KEY));
+  let legacyGroups = null;
+  try{ legacyGroups = JSON.parse(localStorage.getItem(GROUP_BUDGET_KEY)); }catch(e){ legacyGroups = null; }
+  const hasLegacyGroups = legacyGroups && Object.keys(legacyGroups).length > 0;
+  if(!(legacyGeneral > 0) && !hasLegacyGroups) return;
+  const now = new Date();
+  const mk = budgetMonthKey(now.getFullYear(), now.getMonth());
+  if(!monthBudgets[mk]) monthBudgets[mk] = {};
+  if(legacyGeneral > 0 && monthBudgets[mk].general === undefined) monthBudgets[mk].general = legacyGeneral;
+  if(hasLegacyGroups){
+    Object.keys(legacyGroups).forEach(gid=>{
+      if(legacyGroups[gid] > 0 && monthBudgets[mk][gid] === undefined) monthBudgets[mk][gid] = legacyGroups[gid];
+    });
+  }
+  saveMonthBudgets();
+  try{ localStorage.removeItem(GENERAL_BUDGET_KEY); localStorage.removeItem(GROUP_BUDGET_KEY); }catch(e){}
 }
 // El presupuesto que aplica según la pestaña activa: general (Predeterminado)
 // o el del grupo activo.
@@ -2262,26 +2282,34 @@ function currentBudgetContext(){
   }
   return {isGroup:false, key:null, label:'general'};
 }
+// Siempre lee/escribe en el mes que se está viendo (viewYear/viewMonth).
 function currentBudgetValue(){
   const ctx = currentBudgetContext();
-  return ctx.isGroup ? (groupBudgets[ctx.key] || null) : generalBudget;
+  const bucket = monthBudgets[budgetMonthKey(viewYear, viewMonth)];
+  if(!bucket) return null;
+  const key = ctx.isGroup ? ctx.key : 'general';
+  return (bucket[key] > 0) ? bucket[key] : null;
 }
 function setCurrentBudgetValue(v){
   const ctx = currentBudgetContext();
-  if(ctx.isGroup){
-    if(v > 0) groupBudgets[ctx.key] = v; else delete groupBudgets[ctx.key];
-    saveGroupBudgets();
-  } else {
-    generalBudget = (v > 0) ? v : null;
-    saveGeneralBudget();
-  }
+  const mk = budgetMonthKey(viewYear, viewMonth);
+  const key = ctx.isGroup ? ctx.key : 'general';
+  if(!monthBudgets[mk]) monthBudgets[mk] = {};
+  if(v > 0) monthBudgets[mk][key] = v;
+  else delete monthBudgets[mk][key];
+  if(Object.keys(monthBudgets[mk]).length === 0) delete monthBudgets[mk];
+  saveMonthBudgets();
 }
-// Sincroniza el título/valor del panel con el contexto actual (general o grupo).
+// Sincroniza el título/valor del panel con el contexto actual (general o grupo)
+// y el mes que se está viendo, para que quede claro que el presupuesto es solo
+// para ESE mes.
 function renderMtBudgetPanel(){
   const ctx = currentBudgetContext();
   const title = document.getElementById('mtBudgetTitle');
   const input = document.getElementById('mtBudgetInput');
-  if(title) title.textContent = ctx.isGroup ? ('Presupuesto de "' + ctx.label + '" (opcional)') : 'Presupuesto general (opcional)';
+  const monthName = cap(new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'}));
+  const base = ctx.isGroup ? ('Presupuesto de "' + ctx.label + '"') : 'Presupuesto general';
+  if(title) title.textContent = base + ' de ' + monthName + ' (opcional)';
   if(input) input.value = currentBudgetValue() || '';
 }
 // Barra de progreso gastado/límite para el contexto actual (reusa el estilo de
@@ -3593,8 +3621,7 @@ loadDeletedBaseCats();
 loadCatOrder();
 loadCategoryColors();
 loadCategoryBudgets();
-loadGeneralBudget();
-loadGroupBudgets();
+loadMonthBudgets();
 loadCatGroups();
 loadRecurring();
 loadReminders();
