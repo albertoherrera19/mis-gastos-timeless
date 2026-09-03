@@ -2352,17 +2352,20 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
   renderMonthTotal();
 });
 
-/* ----- Meta por rango de fechas (opcional) -----
+/* ----- Límite por rango de fechas (opcional) -----
    A diferencia del presupuesto general/por categoría (siempre mes calendario),
-   esta es una meta PUNTUAL entre dos fechas cualquiera, aunque crucen de un
+   este es un LÍMITE PUNTUAL entre dos fechas cualquiera, aunque crucen de un
    mes a otro (ej. ciclo de tarjeta: 25 de un mes al 12 del siguiente). Solo
-   una activa a la vez; se reemplaza/borra cuando ya no aplica. Cuenta el
-   gasto real (sin productos), sin importar el grupo activo — es un tope
-   general para ese período. */
-let rangeGoal = null; // {from:'YYYY-MM-DD', to:'YYYY-MM-DD', amount:Number} | null
+   uno activo a la vez; se reemplaza/borra cuando ya no aplica. Cuenta el gasto
+   real (sin productos), sin importar el grupo activo. Además, el usuario puede
+   EXCLUIR gastos puntuales del rango (ej. comida, un gasto fijo) para que no
+   sumen a este límite: sus ids se guardan en `excluded`. */
+let rangeGoal = null; // {from:'YYYY-MM-DD', to:'YYYY-MM-DD', amount:Number, excluded:[ids]} | null
+let rgDraftExcluded = new Set(); // borrador de ids excluidos mientras se edita la página
 function loadRangeGoal(){
   try{ rangeGoal = JSON.parse(localStorage.getItem(RANGE_GOAL_KEY)) || null; }
   catch(e){ rangeGoal = null; }
+  if(rangeGoal && !Array.isArray(rangeGoal.excluded)) rangeGoal.excluded = [];
 }
 function saveRangeGoal(){
   try{
@@ -2370,12 +2373,21 @@ function saveRangeGoal(){
     else localStorage.removeItem(RANGE_GOAL_KEY);
   }catch(e){}
 }
-function rangeGoalSpent(){
-  if(!rangeGoal) return 0;
-  const from = new Date(rangeGoal.from + 'T00:00:00');
-  const to = new Date(rangeGoal.to + 'T23:59:59');
+// Gastos reales (sin productos) dentro de una ventana de fechas, del más nuevo
+// al más viejo. Sirve tanto para el cálculo del total como para la lista editable.
+function rangeExpensesInWindow(fromStr, toStr){
+  if(!fromStr || !toStr) return [];
+  const from = new Date(fromStr + 'T00:00:00');
+  const to = new Date(toStr + 'T23:59:59');
   return expenses
     .filter(e=>{ const d = new Date(e.date); return d >= from && d <= to && !isStockMovement(e); })
+    .sort((a,b)=> new Date(b.date) - new Date(a.date));
+}
+function rangeGoalSpent(){
+  if(!rangeGoal) return 0;
+  const excluded = rangeGoal.excluded || [];
+  return rangeExpensesInWindow(rangeGoal.from, rangeGoal.to)
+    .filter(e=> excluded.indexOf(e.id) === -1)
     .reduce((s,e)=> s + e.amount, 0);
 }
 function renderRangeGoal(){
@@ -2386,13 +2398,14 @@ function renderRangeGoal(){
   document.getElementById('rgFrom').value = rangeGoal ? rangeGoal.from : '';
   document.getElementById('rgTo').value = rangeGoal ? rangeGoal.to : '';
   document.getElementById('rgAmount').value = rangeGoal ? rangeGoal.amount : '';
+  renderRgExpList();
   if(!rangeGoal){
-    tease.textContent = 'Pon un tope de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)';
+    tease.textContent = 'Pon un límite de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)';
     if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
     if(mtBar){
       mtBar.style.display = 'block';
       mtBar.className = 'cd-budget-bar mt-range-bar show';
-      mtBar.innerHTML = '<div class="bb-label"><span>📅 Meta por rango de fechas</span>' +
+      mtBar.innerHTML = '<div class="bb-label"><span>📅 Límite por rango de fechas</span>' +
         '<span class="bb-status">✎ Configurar</span></div>';
     }
     return;
@@ -2413,7 +2426,7 @@ function renderRangeGoal(){
       '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
   }
   // Espejo bajo el total del mes: no depende del mes que se esté viendo (viewYear/
-  // viewMonth), siempre muestra la MISMA meta de rango sin importar a qué mes navegue.
+  // viewMonth), siempre muestra el MISMO límite de rango sin importar a qué mes navegue.
   if(mtBar){
     const pct = Math.min(spent / rangeGoal.amount * 100, 100);
     const over = spent > rangeGoal.amount;
@@ -2427,8 +2440,54 @@ function renderRangeGoal(){
       '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
   }
 }
+// Lista editable de gastos dentro del rango que se está configurando (lee las
+// fechas de los inputs, no del rangeGoal guardado, para que se actualice en vivo
+// al cambiar fechas). Cada gasto tiene un check: marcado = cuenta al límite,
+// desmarcado = excluido. Muestra abajo el subtotal de lo que sí cuenta.
+function renderRgExpList(){
+  const block = document.getElementById('rgExpBlock');
+  const listEl = document.getElementById('rgExpList');
+  if(!block || !listEl) return;
+  const from = document.getElementById('rgFrom').value;
+  const to = document.getElementById('rgTo').value;
+  const valid = from && to && new Date(from + 'T00:00:00') <= new Date(to + 'T00:00:00');
+  if(!valid){ block.style.display = 'none'; listEl.innerHTML = ''; return; }
+  const list = rangeExpensesInWindow(from, to);
+  block.style.display = 'block';
+  if(list.length === 0){
+    listEl.innerHTML = '<div class="rg-exp-empty">No hay gastos en este rango todavía.</div>';
+    return;
+  }
+  let included = 0;
+  const rows = list.map(e=>{
+    const excluded = rgDraftExcluded.has(e.id);
+    if(!excluded) included += e.amount;
+    const cat = catById(e.category) || {icon:'🗂️', name:'Otros'};
+    const dateStr = new Date(e.date).toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
+    return '<label class="rg-exp-item' + (excluded ? ' off' : '') + '">' +
+      '<input type="checkbox" class="rg-exp-check" data-id="' + e.id + '"' + (excluded ? '' : ' checked') + '>' +
+      '<span class="rg-exp-icon">' + cat.icon + '</span>' +
+      '<span class="rg-exp-info"><span class="rg-exp-cat">' + cat.name + '</span>' +
+      (e.note ? '<span class="rg-exp-note">' + e.note + '</span>' : '') + '</span>' +
+      '<span class="rg-exp-right"><span class="rg-exp-amt">S/ ' + fmt(e.amount) + '</span>' +
+      '<span class="rg-exp-date">' + dateStr + '</span></span></label>';
+  }).join('');
+  const excludedCount = list.filter(e=> rgDraftExcluded.has(e.id)).length;
+  const subtotal = '<div class="rg-exp-subtotal">Cuentan: <b>S/ ' + fmt(included) + '</b>' +
+    (excludedCount > 0 ? ' <span class="rg-exp-excnt">(' + excludedCount + ' fuera)</span>' : '') + '</div>';
+  listEl.innerHTML = rows + subtotal;
+  listEl.querySelectorAll('.rg-exp-check').forEach(chk=>{
+    chk.addEventListener('change', ()=>{
+      const id = chk.getAttribute('data-id');
+      if(chk.checked) rgDraftExcluded.delete(id); else rgDraftExcluded.add(id);
+      renderRgExpList();
+    });
+  });
+}
 function openRangeGoalPage(){
   const page = document.getElementById('rangeGoalPage');
+  // El borrador de excluidos arranca desde lo que ya estaba guardado.
+  rgDraftExcluded = new Set(rangeGoal && rangeGoal.excluded ? rangeGoal.excluded : []);
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
   document.body.classList.add('cd-open');
@@ -2443,18 +2502,26 @@ function closeRangeGoalPage(){
 }
 document.getElementById('mtRangeGoalBar').addEventListener('click', openRangeGoalPage);
 document.getElementById('rgBack').addEventListener('click', closeRangeGoalPage);
+// Al cambiar las fechas, refresca la lista de gastos del rango en vivo.
+document.getElementById('rgFrom').addEventListener('change', renderRgExpList);
+document.getElementById('rgTo').addEventListener('change', renderRgExpList);
 document.getElementById('rgSave').addEventListener('click', ()=>{
   const from = document.getElementById('rgFrom').value;
   const to = document.getElementById('rgTo').value;
   const amount = parseFloat(document.getElementById('rgAmount').value);
   if(!from || !to || !(amount > 0)){ alert('Completa fecha inicio, fecha fin y un monto válido.'); return; }
   if(new Date(from + 'T00:00:00') > new Date(to + 'T00:00:00')){ alert('La fecha de inicio debe ser antes que la fecha final.'); return; }
-  rangeGoal = {from: from, to: to, amount: amount};
+  // Solo guardamos como excluidos los ids que de verdad caen en la ventana final.
+  const idsInWindow = rangeExpensesInWindow(from, to).map(e=>e.id);
+  const excluded = idsInWindow.filter(id=> rgDraftExcluded.has(id));
+  rangeGoal = {from: from, to: to, amount: amount, excluded: excluded};
+  rgDraftExcluded = new Set(excluded);
   saveRangeGoal();
   renderRangeGoal();
 });
 document.getElementById('rgClear').addEventListener('click', ()=>{
   rangeGoal = null;
+  rgDraftExcluded = new Set();
   saveRangeGoal();
   renderRangeGoal();
 });
