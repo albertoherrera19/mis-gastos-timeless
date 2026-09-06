@@ -3135,14 +3135,42 @@ document.getElementById('groupBack').addEventListener('click', closeGroupEditor)
 document.getElementById('groupSaveBtn').addEventListener('click', saveGroup);
 document.getElementById('groupDeleteBtn').addEventListener('click', deleteGroup);
 
-/* ---------- Gastos recurrentes (suscripciones/servicios fijos) ---------- */
-let recurring = [];        // [{id, name, amount, day, category, paid:{'YYYY-MM': expenseId|true}}]
+/* ---------- Gastos recurrentes (suscripciones/servicios fijos) ----------
+   dayFrom/dayTo: rango de días de pago (ambos null = sin fecha fija; dayTo
+   null = un solo día). Antes existía un único campo "day"; se migra abajo. */
+let recurring = [];        // [{id, name, amount, dayFrom, dayTo, category, paid:{'YYYY-MM': expenseId|true}}]
 let recEditingId = null;
 let recSelCat = null;
 
 function loadRecurring(){
   try{ recurring = JSON.parse(localStorage.getItem(RECURRING_KEY)) || []; }
   catch(e){ recurring = []; }
+  recurring.forEach(r=>{
+    if(r.dayFrom === undefined){
+      r.dayFrom = (typeof r.day === 'number' && r.day >= 1 && r.day <= 31) ? r.day : null;
+      r.dayTo = null;
+      delete r.day;
+    }
+  });
+}
+
+// true si hoy cae dentro del rango de pago del recurrente (o es su único día).
+function isRecurringDue(r, now){
+  if(r.dayFrom == null) return false;
+  const d = now.getDate();
+  const from = r.dayFrom;
+  const to = (r.dayTo != null) ? r.dayTo : r.dayFrom;
+  return d >= from && d <= to;
+}
+function hasPendingRecurringAlert(){
+  const mk = monthKey(new Date());
+  const now = new Date();
+  return recurring.some(r => !r.paid[mk] && isRecurringDue(r, now));
+}
+function renderRecAlertBadge(){
+  const badge = document.getElementById('recAlertBadge');
+  if(!badge) return;
+  badge.style.display = hasPendingRecurringAlert() ? '' : 'none';
 }
 function saveRecurring(){
   try{ localStorage.setItem(RECURRING_KEY, JSON.stringify(recurring)); }catch(e){}
@@ -3183,12 +3211,17 @@ function renderRecurringList(){
     box.innerHTML = '<div class="empty">Aún no tienes recurrentes. Crea uno con el botón de abajo.</div>';
     return;
   }
+  const now = new Date();
   box.innerHTML = recurring.map(r=>{
     const cat = catById(r.category) || {icon:'🗂️', name:'Otros'};
     const paid = !!r.paid[mk];
+    const due = !paid && isRecurringDue(r, now);
+    const dayLbl = r.dayFrom == null ? 'sin fecha fija'
+      : (r.dayTo != null && r.dayTo !== r.dayFrom) ? ('días ' + r.dayFrom + '–' + r.dayTo)
+      : ('día ' + r.dayFrom);
     return '<div class="rec-item" data-id="' + r.id + '">' +
-             '<div class="rec-info"><div class="rec-name">' + cat.icon + ' ' + r.name + '</div>' +
-               '<div class="rec-meta">S/ ' + fmt(r.amount) + ' · día ' + r.day + ' · ' + cat.name + '</div></div>' +
+             '<div class="rec-info"><div class="rec-name">' + cat.icon + ' ' + r.name + (due ? ' <span class="rec-due-flag" title="Pendiente de pago">⚠️</span>' : '') + '</div>' +
+               '<div class="rec-meta">S/ ' + fmt(r.amount) + ' · ' + dayLbl + ' · ' + cat.name + '</div></div>' +
              '<div class="rec-actions">' +
                '<span class="rec-edit" data-id="' + r.id + '" title="Editar">✏️</span>' +
                '<button class="rec-toggle' + (paid ? ' paid' : '') + '" data-id="' + r.id + '" type="button">' + (paid ? '✓ Pagado' : 'Pendiente') + '</button>' +
@@ -3201,6 +3234,7 @@ function renderRecurringList(){
   box.querySelectorAll('.rec-edit').forEach(b=>{
     b.addEventListener('click', ()=> openRecForm(b.getAttribute('data-id')));
   });
+  renderRecAlertBadge();
 }
 
 function renderRecCatGrid(){
@@ -3210,7 +3244,7 @@ function renderRecCatGrid(){
     const btn = document.createElement('div');
     btn.className = 'cat-btn' + (recSelCat === cat.id ? ' selected' : '');
     btn.innerHTML = '<span class="icon">' + cat.icon + '</span>' + cat.name;
-    btn.onclick = ()=>{ recSelCat = cat.id; renderRecCatGrid(); };
+    btn.onclick = ()=>{ recSelCat = cat.id; renderRecCatGrid(); autoSaveRecItem(); };
     grid.appendChild(btn);
   });
 }
@@ -3221,7 +3255,8 @@ function openRecForm(id){
   document.getElementById('recTitle').textContent = r ? 'Editar recurrente' : 'Nuevo recurrente';
   document.getElementById('recName').value = r ? r.name : '';
   document.getElementById('recAmount').value = r ? r.amount : '';
-  document.getElementById('recDay').value = r ? r.day : '';
+  document.getElementById('recDayFrom').value = (r && r.dayFrom != null) ? r.dayFrom : '';
+  document.getElementById('recDayTo').value = (r && r.dayTo != null) ? r.dayTo : '';
   recSelCat = r ? r.category : null;
   renderRecCatGrid();
   document.getElementById('recDeleteBtn').style.display = r ? '' : 'none';
@@ -3229,21 +3264,30 @@ function openRecForm(id){
   document.getElementById('recFormWrap').style.display = '';
 }
 
-function saveRecItem(){
+// Guarda automáticamente en cuanto nombre, monto y categoría son válidos
+// (no hay botón "Guardar"). Si aún falta algo, no hace nada ni avisa,
+// para no interrumpir mientras el usuario sigue llenando el formulario.
+function autoSaveRecItem(){
+  if(document.getElementById('recFormWrap').style.display === 'none') return;
   const name = document.getElementById('recName').value.trim();
   const amount = parseFloat(document.getElementById('recAmount').value);
-  let day = parseInt(document.getElementById('recDay').value, 10);
-  if(!name || !(amount > 0) || !recSelCat){ alert('Completa nombre, monto y categoría.'); return; }
-  if(!(day >= 1 && day <= 31)) day = 1;
+  let dayFrom = parseInt(document.getElementById('recDayFrom').value, 10);
+  let dayTo = parseInt(document.getElementById('recDayTo').value, 10);
+  dayFrom = (dayFrom >= 1 && dayFrom <= 31) ? dayFrom : null;
+  dayTo = (dayTo >= 1 && dayTo <= 31) ? dayTo : null;
+  if(dayFrom == null){ dayTo = null; }
+  else if(dayTo != null && dayTo < dayFrom){ const t = dayFrom; dayFrom = dayTo; dayTo = t; }
+  if(!name || !(amount > 0) || !recSelCat) return;
   if(recEditingId){
     const r = recurring.find(x=>x.id === recEditingId);
-    if(r){ r.name = name; r.amount = amount; r.day = day; r.category = recSelCat; }
+    if(r){ r.name = name; r.amount = amount; r.dayFrom = dayFrom; r.dayTo = dayTo; r.category = recSelCat; }
   } else {
-    recurring.push({id:'rec_' + Date.now(), name:name, amount:amount, day:day, category:recSelCat, paid:{}});
+    recEditingId = 'rec_' + Date.now();
+    recurring.push({id:recEditingId, name:name, amount:amount, dayFrom:dayFrom, dayTo:dayTo, category:recSelCat, paid:{}});
+    document.getElementById('recDeleteBtn').style.display = '';
   }
   saveRecurring();
-  showRecList();
-  renderRecurringList();
+  renderRecAlertBadge();
 }
 
 function deleteRecItem(){
@@ -3280,7 +3324,14 @@ function toggleRecurringPaid(id){
     if(registrar){
       const now = new Date();
       const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      const day = Math.min(r.day, dim);
+      let day;
+      if(r.dayFrom == null){
+        day = now.getDate(); // sin fecha fija: usa el día real en que se marca pagado
+      } else if(isRecurringDue(r, now)){
+        day = now.getDate(); // hoy cae dentro de su rango: usa la fecha real
+      } else {
+        day = Math.min(r.dayFrom, dim);
+      }
       const gasto = {
         id: Date.now().toString(),
         amount: r.amount,
@@ -3449,9 +3500,11 @@ function toggleReminderDone(id){
 document.getElementById('recurringBtn').addEventListener('click', openRecurringPage);
 document.getElementById('recBack').addEventListener('click', closeRecurringPage);
 document.getElementById('recurringAddBtn').addEventListener('click', ()=> openRecForm(null));
-document.getElementById('recSaveBtn').addEventListener('click', saveRecItem);
 document.getElementById('recDeleteBtn').addEventListener('click', deleteRecItem);
-document.getElementById('recCancelBtn').addEventListener('click', ()=>{ showRecList(); renderRecurringList(); });
+document.getElementById('recCancelBtn').addEventListener('click', ()=>{ autoSaveRecItem(); showRecList(); renderRecurringList(); });
+['recName','recAmount','recDayFrom','recDayTo'].forEach(fid=>{
+  document.getElementById(fid).addEventListener('change', autoSaveRecItem);
+});
 document.getElementById('remAddBtn').addEventListener('click', ()=> openRemForm(null));
 document.getElementById('remSaveBtn').addEventListener('click', saveRemItem);
 document.getElementById('remDeleteBtn').addEventListener('click', deleteRemItem);
@@ -3693,6 +3746,7 @@ loadCategoryBudgets();
 loadMonthBudgets();
 loadCatGroups();
 loadRecurring();
+renderRecAlertBadge();
 loadReminders();
 loadCashback();
 loadCashbackExclude();

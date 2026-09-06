@@ -28,7 +28,7 @@
     </div>
     <div class="header-right">
       <div class="header-btns">
-        <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁</div>
+        <div class="gear-btn" id="recurringBtn" title="Gastos fijos y recurrentes">🔁<span class="rec-alert-badge" id="recAlertBadge" style="display:none">!</span></div>
         <div class="gear-btn" id="saveSheetsBtn" title="Guardar en Google Sheets">💾</div>
         <div class="gear-btn" id="cashbackBtn" title="Cashback">💰</div>
         <div class="gear-btn" id="gearBtn">⚙️</div>
@@ -320,14 +320,18 @@
         </div>
         <input type="text" id="recName" placeholder="Nombre — ej: Netflix">
         <label class="date-row">
-          <span class="date-label">📅 Día del mes</span>
-          <input type="number" id="recDay" min="1" max="31" placeholder="5" class="rec-day-input">
+          <span class="date-label">📅 Día(s) de pago</span>
+          <span class="rec-day-range">
+            <input type="number" id="recDayFrom" min="1" max="31" placeholder="ej: 5" class="rec-day-input">
+            <span class="rec-day-sep">–</span>
+            <input type="number" id="recDayTo" min="1" max="31" placeholder="ej: 8" class="rec-day-input">
+          </span>
         </label>
+        <div class="date-hint rec-day-hint">Déjalo vacío si no tiene un día fijo. Si pagas en un rango de días, pon el primero y el último.</div>
         <div class="cg-cats-title">Categoría</div>
         <div class="cats" id="recCatGrid"></div>
-        <button class="save-btn" id="recSaveBtn">Guardar</button>
         <button class="group-delete-btn" id="recDeleteBtn" type="button">Eliminar</button>
-        <button class="group-delete-btn" id="recCancelBtn" type="button">Cancelar</button>
+        <button class="group-delete-btn" id="recCancelBtn" type="button">Listo</button>
       </div>
     </div>
 
