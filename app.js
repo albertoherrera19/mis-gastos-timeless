@@ -2159,6 +2159,7 @@ function openCategoryDetail(catId){
   // en esta categoría"), no lo mismo que no tener presupuesto — no usar `|| ''`.
   const catBudget = categoryBudgets[catId];
   document.getElementById('cdBudgetInput').value = (catBudget != null) ? catBudget : '';
+  document.getElementById('cdFreqNoteInput').value = catFrequentNotes[catId] || '';
   renderBudgetBar(catId, monthTotal);
 
   const page = document.getElementById('catDetailPage');
@@ -2351,14 +2352,25 @@ function renderMtBudgetPanel(){
   if(input) input.value = currentBudgetValue() || '';
 }
 // Barra de progreso gastado/límite para el contexto actual (reusa el estilo de
-// la barra de presupuesto por categoría).
+// la barra de presupuesto por categoría). Se puede tocar para alternar entre
+// "gastado de límite" y "cuánto queda en efectivo" — vuelve a la vista normal
+// si cambias de mes o de grupo, para no dejarlo en un estado raro sin querer.
+let mtBudgetShowRemaining = false;
+let lastMtBudgetCtxKey = undefined;
 function renderMtBudgetBar(spent){
   const bar = document.getElementById('mtBudgetBar');
   if(!bar) return;
+  const ctx = currentBudgetContext();
+  const ctxKey = (ctx.isGroup ? ctx.key : 'general') + '|' + viewYear + '-' + viewMonth;
+  if(ctxKey !== lastMtBudgetCtxKey){
+    lastMtBudgetCtxKey = ctxKey;
+    mtBudgetShowRemaining = false;
+  }
   const limit = currentBudgetValue();
   if(!(limit > 0)){
     bar.classList.remove('show');
     bar.innerHTML = '';
+    bar.onclick = null;
     return;
   }
   const pct = spent / limit * 100;
@@ -2366,14 +2378,25 @@ function renderMtBudgetBar(spent){
   let state = '';
   if(pct >= 100) state = 'over';
   else if(pct >= 80) state = 'warn';
-  const statusTxt = pct >= 100
-    ? 'Superado (' + Math.round(pct) + '%)'
-    : Math.round(pct) + '%';
-  bar.className = 'cd-budget-bar show ' + state;
-  bar.innerHTML =
-    '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
-    '<span class="bb-status">' + statusTxt + '</span></div>' +
-    '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+  bar.className = 'cd-budget-bar show clickable ' + state;
+  if(mtBudgetShowRemaining){
+    const remaining = limit - spent;
+    const labelHtml = remaining >= 0
+      ? '<span class="bb-remaining">💵 Puedes gastar S/ ' + fmt(remaining) + ' más este mes</span>'
+      : '<span class="bb-remaining">⚠️ Te pasaste por S/ ' + fmt(Math.abs(remaining)) + '</span>';
+    bar.innerHTML =
+      '<div class="bb-label">' + labelHtml + '</div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+  } else {
+    const statusTxt = pct >= 100
+      ? 'Superado (' + Math.round(pct) + '%)'
+      : Math.round(pct) + '%';
+    bar.innerHTML =
+      '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
+      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+  }
+  bar.onclick = ()=>{ mtBudgetShowRemaining = !mtBudgetShowRemaining; renderMtBudgetBar(spent); };
 }
 document.getElementById('mtBudgetBtn').addEventListener('click', ()=>{
   document.getElementById('mtBudgetPanel').classList.toggle('open');
@@ -2690,6 +2713,22 @@ document.getElementById('cdBudgetClear').addEventListener('click', ()=>{
   saveCategoryBudgets();
   document.getElementById('cdBudgetInput').value = '';
   renderBudgetBar(cdCatId, currentCdMonthTotal());
+});
+
+// Guardar / quitar la nota frecuente desde el panel de ajustes de la categoría
+// (misma nota que se configura en "editar categoría" — quedan sincronizadas).
+document.getElementById('cdFreqNoteSave').addEventListener('click', ()=>{
+  if(!cdCatId) return;
+  const note = document.getElementById('cdFreqNoteInput').value.trim();
+  if(note) catFrequentNotes[cdCatId] = note; else delete catFrequentNotes[cdCatId];
+  saveFrequentNotes();
+  document.getElementById('cdColorPanel').classList.remove('open');
+});
+document.getElementById('cdFreqNoteClear').addEventListener('click', ()=>{
+  if(!cdCatId) return;
+  delete catFrequentNotes[cdCatId];
+  saveFrequentNotes();
+  document.getElementById('cdFreqNoteInput').value = '';
 });
 
 function closeCategoryDetail(){
