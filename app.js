@@ -202,8 +202,6 @@ function renderSwatches(activeName){
 document.getElementById('gearBtn').addEventListener('click', ()=>{
   document.getElementById('themeDrawer').classList.toggle('open');
 });
-document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsSync);
-
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
@@ -776,21 +774,6 @@ function showUndoToast(msg, onUndo){
   const hide = ()=>{ t.className = 'undo-toast'; clearTimeout(t._timer); };
   t.querySelector('.undo-btn').onclick = ()=>{ hide(); if(typeof onUndo === 'function') onUndo(); };
   t._timer = setTimeout(hide, 6000);
-}
-
-// Botón 💾: fuerza el envío de lo pendiente a Google Sheets.
-function manualSheetsSync(){
-  if(!sheetsSyncEnabled()){
-    showToast('Google Sheets no está configurado', 'err');
-    return;
-  }
-  if(typeof navigator !== 'undefined' && navigator.onLine === false){
-    showToast('Sin conexión, intenta de nuevo', 'err');
-    return;
-  }
-  flushSheetsQueue();
-  syncCashbackToSheets(); // fuerza también el envío del cashback
-  showToast('✓ Guardado en Google Sheets', 'ok');
 }
 
 /* ---------- Grupos de categorías (filtro pantalla principal) ---------- */
