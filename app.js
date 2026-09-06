@@ -60,6 +60,7 @@ const AVOIDABLE_KEY = 'timeless_avoidable'; // ids de gastos marcados "evitables
 const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siempre innecesaria" (simulador)
 const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
 const RANGE_GOAL_KEY = 'timeless_range_goal'; // meta puntual de gasto entre dos fechas (puede cruzar de un mes a otro)
+const FREQ_NOTE_KEY = 'timeless_freq_notes'; // nota frecuente por categoría, para llenar la Nota de un toque
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -78,6 +79,15 @@ let lastAccentTheme = 'azul';
 
 let catOverrides = {};   // {catId: {name, icon}} — ediciones sobre categorías base o personalizadas
 let deletedBaseCats = []; // ids de BASE_CATEGORIES que el usuario eliminó en este dispositivo
+let catFrequentNotes = {}; // {catId: texto} — nota frecuente por categoría (botón rápido al agregar un gasto)
+
+function loadFrequentNotes(){
+  try{ catFrequentNotes = JSON.parse(localStorage.getItem(FREQ_NOTE_KEY)) || {}; }
+  catch(e){ catFrequentNotes = {}; }
+}
+function saveFrequentNotes(){
+  try{ localStorage.setItem(FREQ_NOTE_KEY, JSON.stringify(catFrequentNotes)); }catch(e){}
+}
 
 function loadCatOverrides(){
   try{ catOverrides = JSON.parse(localStorage.getItem(CAT_OVERRIDE_KEY)) || {}; }
@@ -197,7 +207,7 @@ document.getElementById('saveSheetsBtn').addEventListener('click', manualSheetsS
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -388,6 +398,7 @@ function renderCats(){
   if(dragHint) dragHint.style.display = catsEditMode ? '' : 'none';
 
   updateCatNoteHint();
+  renderFreqNoteBtn();
 }
 
 /* ---------- Arrastrar para reordenar categorías (solo en modo Editar) ----------
@@ -526,6 +537,25 @@ document.querySelectorAll('#stockOnlyOpts .gt-opt').forEach(el=>{
   });
 });
 
+// Botón rápido para llenar la Nota con el texto frecuente de la categoría
+// elegida (ej: "ISIL" en Pasajes) — se configura en "editar categoría".
+function renderFreqNoteBtn(){
+  const btn = document.getElementById('freqNoteBtn');
+  if(!btn) return;
+  const cat = selectedCat ? catById(selectedCat) : null;
+  const note = cat ? catFrequentNotes[cat.id] : null;
+  if(note){
+    document.getElementById('freqNoteBtnText').textContent = note;
+    btn.style.display = '';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+document.getElementById('freqNoteBtn').addEventListener('click', ()=>{
+  document.getElementById('noteInput').value = document.getElementById('freqNoteBtnText').textContent;
+  validateForm();
+});
+
 document.getElementById('catsEditToggle').addEventListener('click', ()=>{
   catsEditMode = !catsEditMode;
   renderCats();
@@ -546,11 +576,13 @@ function openCatForm(editCat){
   const form = document.getElementById('newCatForm');
   const nameInp = document.getElementById('newCatName');
   const emojiInp = document.getElementById('newCatEmoji');
+  const freqNoteInp = document.getElementById('newCatFreqNote');
   const confirmBtn = document.getElementById('confirmNewCat');
   if(editCat){
     catFormEditId = editCat.id;
     nameInp.value = editCat.name;
     emojiInp.value = editCat.icon;
+    freqNoteInp.value = catFrequentNotes[editCat.id] || '';
     confirmBtn.textContent = 'Guardar cambios';
     const g = catGroups.find(x=> x.cats.indexOf(editCat.id) !== -1);
     catFormGroupId = g ? g.id : null;
@@ -558,6 +590,7 @@ function openCatForm(editCat){
     catFormEditId = null;
     nameInp.value = '';
     emojiInp.value = '';
+    freqNoteInp.value = '';
     confirmBtn.textContent = 'Crear categoría';
     catFormGroupId = null;
   }
@@ -572,6 +605,7 @@ function closeCatForm(){
   document.getElementById('newCatForm').classList.remove('open');
   document.getElementById('newCatName').value = '';
   document.getElementById('newCatEmoji').value = '';
+  document.getElementById('newCatFreqNote').value = '';
   document.getElementById('confirmNewCat').textContent = 'Crear categoría';
 }
 
@@ -616,6 +650,10 @@ document.getElementById('confirmNewCat').addEventListener('click', ()=>{
     if(g && g.cats.indexOf(catId) === -1){ g.cats.push(catId); groupsChanged = true; }
   }
   if(groupsChanged) saveCatGroups();
+
+  const freqNote = document.getElementById('newCatFreqNote').value.trim();
+  if(freqNote) catFrequentNotes[catId] = freqNote; else delete catFrequentNotes[catId];
+  saveFrequentNotes();
 
   closeCatForm();
   renderCats();
@@ -3739,6 +3777,7 @@ initEyebrow();
 try{ applyTheme(savedTheme); }catch(e){}
 loadCustomCategories();
 loadCatOverrides();
+loadFrequentNotes();
 loadDeletedBaseCats();
 loadCatOrder();
 loadCategoryColors();

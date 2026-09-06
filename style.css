@@ -382,6 +382,20 @@ input[type="text"]::placeholder{color:var(--muted);}
 }
 .cat-note-hint .stock-only-row{margin:10px 0 0;}
 .cat-note-hint .group-tag-label{color:var(--bone);}
+.freq-note-btn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  background:var(--chip);
+  border:1px solid var(--accent);
+  color:var(--bone);
+  font-size:12px;
+  font-weight:700;
+  padding:8px 14px;
+  border-radius:20px;
+  cursor:pointer;
+  margin:-8px 0 16px;
+}
 .cat-btn{
   position:relative;
   background:var(--chip);
@@ -500,6 +514,8 @@ input[type="text"]::placeholder{color:var(--muted);}
 .new-cat-form input[type="text"]{
   margin-bottom:0;
 }
+.new-cat-form #newCatFreqNote{margin:10px 0 0;}
+.freq-note-form-hint{margin:6px 0 10px;}
 .emoji-input{
   width:56px !important;
   flex:none !important;
