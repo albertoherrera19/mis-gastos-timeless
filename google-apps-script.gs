@@ -23,6 +23,8 @@
  *   - cashbackSync  → pestaña "Cashback"       (retiros de cashback, desde esta misma app)
  *   - compraGuardar / compraEliminar / compraFoto → pestaña "Compras" (planificación de accesorios)
  *   - seguimientoGuardar / seguimientoEliminar     → pestaña "Seguimiento" (17TRACK)
+ *   - metaGuardar / metaEliminar → pestaña "Metas" (Meta del mes + Meta personalizada,
+ *     antes solo en localStorage del celular — por eso no se veían en la laptop)
  *
  * Los sync masivos (Ventas/Stocks/Campañas/Cashback) son full-replace porque
  * el Excel / Meta / la app son la fuente de verdad: así nunca hay filas
@@ -88,6 +90,16 @@ var CASHBACK_HEADERS = ['Fecha', 'Monto', 'Nota'];
 // Carpeta de Drive donde se guardan las fotos de los bloques de compra.
 var FOTOS_FOLDER_NAME = 'Timeless - Fotos accesorios';
 
+// Pestaña "Metas" — Meta del mes y Meta personalizada del dashboard. Antes
+// vivían SOLO en localStorage del dispositivo (por eso Alberto las veía en el
+// celular pero no en la laptop). Un registro por "ID": 'personalizada' guarda
+// el objeto completo de la meta personalizada; 'mes-YYYY-MM' guarda el monto
+// de la meta de ese mes calendario. DataJSON es un JSON libre (mismo patrón
+// que ProductosJSON de Compras), así el dashboard decide su propia forma sin
+// tener que agregar columnas acá cada vez que cambia algo.
+var METAS_SHEET_NAME = 'Metas';
+var METAS_HEADERS = ['ID', 'DataJSON', 'ActualizadoEn'];
+
 // Recibe cada gasto (POST) y lo agrega como fila nueva, o un sync de datos.
 function doPost(e) {
   var data = JSON.parse(e.postData.contents);
@@ -102,6 +114,8 @@ function doPost(e) {
   if (data.type === 'seguimientoGuardar')  return handleSeguimientoGuardar_(data);
   if (data.type === 'seguimientoEliminar') return handleSeguimientoEliminar_(data);
   if (data.type === 'gastoEliminar')       return handleGastoEliminar_(data);
+  if (data.type === 'metaGuardar')         return handleMetaGuardar_(data);
+  if (data.type === 'metaEliminar')        return handleMetaEliminar_(data);
 
   var lock = LockService.getScriptLock();
   try {
@@ -451,6 +465,61 @@ function handleCompraEliminar_(data) {
   } finally {
     try { lock.releaseLock(); } catch (ignore) {}
   }
+}
+
+// Crea o actualiza UNA meta (mismo patrón que compraGuardar_: upsert por ID,
+// nunca full-replace, así una meta no pisa a la otra).
+function handleMetaGuardar_(data) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    var id = String(data.id || '');
+    if (!id) return json_({ ok: false, error: 'Falta id' });
+    var sheet = getOrCreateNamedSheet_(METAS_SHEET_NAME);
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(METAS_HEADERS);
+      sheet.getRange(1, 1, 1, METAS_HEADERS.length).setFontWeight('bold');
+    }
+    var rowIdx = findRowById_(sheet, id);
+    var fila = [id, JSON.stringify(data.data || {}), new Date()];
+    if (rowIdx === -1) sheet.appendRow(fila);
+    else sheet.getRange(rowIdx, 1, 1, METAS_HEADERS.length).setValues([fila]);
+    return json_({ ok: true });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (ignore) {}
+  }
+}
+
+// Borra una meta por ID (usado por "Borrar meta" en Meta personalizada).
+function handleMetaEliminar_(data) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    var sheet = getOrCreateNamedSheet_(METAS_SHEET_NAME);
+    var rowIdx = findRowById_(sheet, data.id);
+    if (rowIdx === -1) return json_({ ok: true }); // ya no existe, nada que hacer
+    sheet.deleteRow(rowIdx);
+    return json_({ ok: true });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (ignore) {}
+  }
+}
+
+// Devuelve todas las metas en vivo para ?action=metas.
+function getMetasVivo_() {
+  var sheet = getOrCreateNamedSheet_(METAS_SHEET_NAME);
+  var last = sheet.getLastRow();
+  if (last < 2) return [];
+  var rows = sheet.getRange(2, 1, last - 1, METAS_HEADERS.length).getValues();
+  return rows.filter(function (r) { return r[0]; }).map(function (r) {
+    var parsed = {};
+    try { parsed = JSON.parse(r[1] || '{}'); } catch (ignore) {}
+    return { id: String(r[0]), data: parsed, actualizadoEn: r[2] ? new Date(r[2]).toISOString() : '' };
+  });
 }
 
 // Busca la fila (1-indexed) cuya columna A coincide con el ID. -1 si no existe.
@@ -835,7 +904,10 @@ function doGet(e) {
   if (action === 'cashback') {
     return json_({ ok: true, cashback: getCashbackVivo_() });
   }
-  return json_({ ok: true, service: 'Mis Gastos - Personal + sync Ventas/Stocks/Campañas/Instagram', version: 'v6-cashback', sheet: SHEET_NAME });
+  if (action === 'metas') {
+    return json_({ ok: true, metas: getMetasVivo_() });
+  }
+  return json_({ ok: true, service: 'Mis Gastos - Personal + sync Ventas/Stocks/Campañas/Instagram', version: 'v7-metas', sheet: SHEET_NAME });
 }
 
 function getOrCreateSheet_() {
