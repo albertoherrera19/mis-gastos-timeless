@@ -1878,6 +1878,21 @@ function dailyTotalsForCategory(catId){
   return {totals, daysInMonth, year, month};
 }
 
+// Movimientos de producto (que NO gastan efectivo: canjes/reposición marcados como
+// Producto) de una categoría en el mes que se está viendo, del más reciente al más
+// antiguo. Sirve para la vista "Productos que salieron" dentro de la categoría —
+// no entran en ningún total de efectivo, pero el usuario quiere poder verlos.
+function stockMovementsForCategory(catId){
+  const year = viewYear, month = viewMonth;
+  return expenses
+    .filter(e=>{
+      if(e.category !== catId || !isStockMovement(e)) return false;
+      const d = new Date(e.date);
+      return d.getFullYear() === year && d.getMonth() === month;
+    })
+    .sort((a,b)=> new Date(b.date) - new Date(a.date));
+}
+
 function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
 
 // Total de una categoría en un mes/año dados. `upToDay` (opcional) limita la suma
@@ -2043,6 +2058,51 @@ function renderCdList(){
   });
 }
 
+// Panel "Productos que salieron" — solo en Canjes/Reposición y solo si este mes
+// hubo movimientos de producto. Desde afuera la categoría sigue en S/0 (esto no
+// es efectivo); aquí adentro se ven esos productos, con su valor total, marcado
+// claramente como que NO cuenta como gasto en efectivo.
+function renderCdStockPanel(catId){
+  const panel = document.getElementById('cdStockPanel');
+  if(!panel) return;
+  if(!isCashbackExemptCategory(catId)){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+  const items = stockMovementsForCategory(catId);
+  if(items.length === 0){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+  const total = items.reduce((s,e)=> s + e.amount, 0);
+  let rows = '';
+  items.forEach(e=>{
+    const note = (e.note && e.note.trim()) ? e.note : 'Sin nota';
+    const dLabel = cap(new Date(e.date).toLocaleDateString('es-PE', {day:'2-digit', month:'short'}));
+    rows +=
+      '<div class="cd-stock-item" data-eid="' + e.id + '">' +
+        '<span class="cd-stock-note">📦 ' + note + '</span>' +
+        '<span class="cd-stock-r">' +
+          '<span class="cd-stock-amt">S/ ' + fmt(e.amount) + '</span>' +
+          '<span class="cd-stock-date">' + dLabel + '</span>' +
+        '</span>' +
+      '</div>';
+  });
+  panel.innerHTML =
+    '<div class="cd-stock-head">' +
+      '<span class="cd-stock-title">📦 Productos que salieron</span>' +
+      '<span class="cd-stock-total">S/ ' + fmt(total) + '</span>' +
+    '</div>' +
+    '<div class="cd-stock-sub">No cuenta como gasto en efectivo — es el valor de lo que saliste de stock (canjes, reposición, pérdidas).</div>' +
+    '<div class="cd-stock-list">' + rows + '</div>';
+  panel.style.display = '';
+  panel.querySelectorAll('.cd-stock-item').forEach(item=>{
+    item.addEventListener('click', ()=> jumpToExpense(item.getAttribute('data-eid')));
+  });
+}
+
 document.getElementById('cdListSortBtn').addEventListener('click', (e)=>{
   e.stopPropagation();
   document.getElementById('cdListSortMenu').classList.toggle('open');
@@ -2132,6 +2192,9 @@ function openCategoryDetail(catId){
 
   // Lista de días con gasto: cada fila se puede expandir para ver sus gastos.
   renderCdList();
+
+  // Productos que salieron sin gastar efectivo (solo Canjes/Reposición).
+  renderCdStockPanel(catId);
 
   // Color propio de la categoría (o acento del tema si no tiene).
   applyCdAccent(catId);
