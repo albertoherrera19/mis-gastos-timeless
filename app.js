@@ -815,19 +815,26 @@ function expenseGroupIds(e){
   return [];
 }
 
-// ¿Un gasto pertenece a un grupo? (por categoría del grupo o etiqueta manual)
-function expenseInGroup(e, groupId){
-  const g = catGroups.find(x=>x.id === groupId);
-  if(!g) return false;
-  if(g.cats.indexOf(e.category) !== -1) return true;
-  if(expenseGroupIds(e).indexOf(groupId) !== -1) return true;
-  return false;
+// Grupos EFECTIVOS de un gasto para filtrar:
+//  - Si tiene grupo(s) forzado(s) a mano, esos MANDAN y REEMPLAZAN al grupo de
+//    su categoría (ej: un pago a SUNAT en categoría "Servicios" —que vive en
+//    "Personal"— forzado a "Timeless" cuenta solo en Timeless, no en Personal).
+//  - Si no forzó nada ("Ninguno"), cae al grupo al que pertenece su categoría.
+function effectiveGroupIds(e){
+  const tags = expenseGroupIds(e);
+  if(tags.length) return tags;
+  return catGroups.filter(g=> g.cats.indexOf(e.category) !== -1).map(g=> g.id);
 }
 
-// Filtra una lista de gastos por el grupo activo: incluye los de categorías del
-// grupo Y los gastos individuales etiquetados manualmente con ese grupo (un
-// gasto puede estar etiquetado a varios grupos a la vez, sin duplicarse en el
-// total general — solo afecta qué grupos lo incluyen en su vista filtrada).
+// ¿Un gasto pertenece (efectivamente) a un grupo?
+function expenseInGroup(e, groupId){
+  if(!groupId) return false;
+  return effectiveGroupIds(e).indexOf(groupId) !== -1;
+}
+
+// Filtra una lista de gastos por el grupo activo. Usa los grupos EFECTIVOS: un
+// gasto con grupo forzado se sale del grupo de su categoría y aparece solo en
+// el(los) grupo(s) que forzaste.
 function applyGroupFilter(list){
   return filterByGroupId(list, activeGroup);
 }
@@ -836,9 +843,7 @@ function applyGroupFilter(list){
 // lo usa el filtro secundario del feed para segmentar en modo Predeterminado.
 function filterByGroupId(list, groupId){
   if(!groupId) return list;
-  const g = catGroups.find(x=>x.id === groupId);
-  const cats = g ? g.cats : [];
-  return list.filter(e=> cats.indexOf(e.category) !== -1 || expenseGroupIds(e).indexOf(groupId) !== -1);
+  return list.filter(e=> effectiveGroupIds(e).indexOf(groupId) !== -1);
 }
 
 // Pills de "Grupo (opcional)" en un formulario (agregar/editar). Multi-selección:
