@@ -3747,6 +3747,7 @@ document.querySelectorAll('#recSubtabs .cg-tab').forEach(btn=>{
 });
 /* ---------- Página de Cashback ---------- */
 let cbEditingId = null;
+let cbShowHistory = false; // el histórico acumulado va oculto tras un botón; por defecto se ve solo el mes
 
 // Pills para elegir el grupo "negocio" que NO recibe cashback.
 function renderCbScope(){
@@ -3782,14 +3783,21 @@ function renderCashbackList(){
   const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString('es-PE', {month:'long'});
 
   let html = 'Recuperado en ' + cap(monthName) + ': S/ ' + fmt(usedThisMonth) +
-    '<span class="cb-used">Retirado en ' + cap(monthName) + ': S/ ' + fmt(withdrawnThisMonth) + '</span>' +
-    '<span class="cb-hist-title">Histórico (toda la app)</span>' +
-    '<span class="cb-used">Retirado en total: S/ ' + fmt(totalRegistered) + '</span>' +
-    '<span class="cb-used">Recuperado en total: S/ ' + fmt(usedAllTime) + '</span>';
+    '<span class="cb-used">Retirado en ' + cap(monthName) + ': S/ ' + fmt(withdrawnThisMonth) + '</span>';
   if(withdrawnThisMonth - usedThisMonth > 0.005){
     html += '<span class="cb-used">El cashback se refleja solo dentro de ' + monthName + ' — lo que no alcanzó a cubrirse con gastos de ese mes no pasa al siguiente.</span>';
   }
+  // El histórico acumulado de toda la app va oculto tras un botón.
+  html += '<button class="cb-hist-btn" id="cbHistBtn" type="button">' +
+    (cbShowHistory ? 'Ocultar histórico ▴' : 'Ver histórico ▾') + '</button>';
+  if(cbShowHistory){
+    html += '<span class="cb-hist-title">Histórico (toda la app)</span>' +
+      '<span class="cb-used">Retirado en total: S/ ' + fmt(totalRegistered) + '</span>' +
+      '<span class="cb-used">Recuperado en total: S/ ' + fmt(usedAllTime) + '</span>';
+  }
   balanceEl.innerHTML = html;
+  const histBtn = document.getElementById('cbHistBtn');
+  if(histBtn) histBtn.addEventListener('click', ()=>{ cbShowHistory = !cbShowHistory; renderCashbackList(); });
 
   renderCbScope();
 
