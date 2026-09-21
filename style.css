@@ -1050,7 +1050,17 @@ input[type="text"]::placeholder{color:var(--muted);}
   padding:0 20px calc(env(safe-area-inset-bottom, 0px) + 40px);
 }
 .cat-detail-page.open{display:block;}
-body.cd-open{overflow:hidden;}
+.cat-detail-page{overscroll-behavior:contain;}
+/* Fondo bloqueado mientras hay un overlay abierto: position:fixed frena el
+   scroll táctil del fondo en móvil (iOS/PWA), donde overflow:hidden no basta.
+   La posición de scroll se guarda/restaura en JS (lockBg/unlockBg). */
+body.cd-open{
+  overflow:hidden;
+  position:fixed;
+  left:0;
+  right:0;
+  width:100%;
+}
 
 .cd-topbar{
   display:flex;
@@ -1873,6 +1883,17 @@ body.cd-open{overflow:hidden;}
   margin-bottom:8px;
   overflow:hidden;
 }
+.feed-filter-total{
+  margin-top:12px;
+  padding:12px 14px;
+  background:var(--accent-dim);
+  border:1px solid var(--accent);
+  border-radius:10px;
+  font-size:13px;
+  color:var(--bone);
+  text-align:right;
+}
+.feed-filter-total b{font-family:monospace;font-size:15px;}
 .fg-head{
   display:flex;
   align-items:center;

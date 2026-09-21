@@ -832,6 +832,37 @@ function expenseInGroup(e, groupId){
   return effectiveGroupIds(e).indexOf(groupId) !== -1;
 }
 
+// ¿Este gasto pasa el filtro del grupo activo de la pantalla principal? En
+// Predeterminado (activeGroup null) pasa todo; con un grupo activo, solo los que
+// efectivamente le pertenecen (respetando el grupo forzado). Lo usan las vistas
+// de detalle de categoría para que su total no se "olvide" del grupo elegido.
+function passesActiveGroup(e){
+  return !activeGroup || expenseInGroup(e, activeGroup);
+}
+
+// Bloqueo de scroll del fondo cuando se abre una página overlay (categoría,
+// cashback, simulador, etc.). En móvil (iOS/PWA) `overflow:hidden` en el body no
+// frena el scroll táctil; fijar el body con position:fixed sí. Se guarda y
+// restaura la posición de scroll. Un contador soporta overlays apilados (ej.
+// abrir "editar gasto" encima del detalle de categoría) sin perder la posición.
+let _bgScrollY = 0, _bgLockDepth = 0;
+function lockBg(){
+  if(_bgLockDepth === 0){
+    _bgScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    document.body.style.top = (-_bgScrollY) + 'px';
+    document.body.classList.add('cd-open');
+  }
+  _bgLockDepth++;
+}
+function unlockBg(){
+  _bgLockDepth = Math.max(0, _bgLockDepth - 1);
+  if(_bgLockDepth === 0){
+    document.body.classList.remove('cd-open');
+    document.body.style.top = '';
+    window.scrollTo(0, _bgScrollY);
+  }
+}
+
 // Filtra una lista de gastos por el grupo activo. Usa los grupos EFECTIVOS: un
 // gasto con grupo forzado se sale del grupo de su categoría y aparece solo en
 // el(los) grupo(s) que forzaste.
@@ -943,7 +974,7 @@ function openGroupEditor(gid){
   const page = document.getElementById('groupPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 
@@ -951,7 +982,7 @@ function closeGroupEditor(){
   const page = document.getElementById('groupPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   editingGroupId = null;
 }
 
@@ -1555,7 +1586,7 @@ function openSimPage(){
   const page = document.getElementById('simPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
   renderSim();
 }
@@ -1563,7 +1594,7 @@ function closeSimPage(){
   const page = document.getElementById('simPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   renderSimLauncher(); // refresca el teaser por si marcaron cosas
 }
 
@@ -1931,6 +1962,7 @@ function dailyTotalsForCategory(catId){
   expenses.forEach(e=>{
     if(e.category !== catId) return;
     if(isStockMovement(e)) return;
+    if(!passesActiveGroup(e)) return;
     const d = new Date(e.date);
     if(d.getFullYear() === year && d.getMonth() === month){
       totals[d.getDate()] += e.amount;
@@ -1948,6 +1980,7 @@ function stockMovementsForCategory(catId){
   return expenses
     .filter(e=>{
       if(e.category !== catId || !isStockMovement(e)) return false;
+      if(!passesActiveGroup(e)) return false;
       const d = new Date(e.date);
       return d.getFullYear() === year && d.getMonth() === month;
     })
@@ -1965,6 +1998,7 @@ function categoryTotalForMonth(catId, year, month, upToDay){
   expenses.forEach(e=>{
     if(e.category !== catId) return;
     if(isStockMovement(e)) return;
+    if(!passesActiveGroup(e)) return;
     const d = new Date(e.date);
     if(d.getFullYear() === year && d.getMonth() === month && d.getDate() <= cap) t += e.amount;
   });
@@ -2065,6 +2099,8 @@ function renderCdList(){
   sortedCdDays().forEach(x=>{
     const dayItems = expenses.filter(e=>{
       if(e.category !== cdCatId) return false;
+      if(isStockMovement(e)) return false;
+      if(!passesActiveGroup(e)) return false;
       const d = new Date(e.date);
       return d.getFullYear()===cdYear && d.getMonth()===cdMonth && d.getDate()===x.day;
     }).sort((a,b)=> new Date(a.date) - new Date(b.date));
@@ -2277,7 +2313,7 @@ function openCategoryDetail(catId){
   const page = document.getElementById('catDetailPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 
   // Calcular tamaños tras el layout real.
@@ -2701,7 +2737,7 @@ function openRangeGoalPage(){
   rgDraftExcluded = new Set(rangeGoal && rangeGoal.excluded ? rangeGoal.excluded : []);
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
   renderRangeGoal();
 }
@@ -2709,7 +2745,7 @@ function closeRangeGoalPage(){
   const page = document.getElementById('rangeGoalPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
 }
 document.getElementById('mtRangeGoalBar').addEventListener('click', openRangeGoalPage);
 document.getElementById('rgBack').addEventListener('click', closeRangeGoalPage);
@@ -2759,13 +2795,21 @@ document.getElementById('cdCompareToggleBtn').addEventListener('click', toggleSh
 // configurado). Un límite de 0 SÍ es un presupuesto real ("no gastar nada en
 // esta categoría"): se distingue de "sin presupuesto" (undefined), y se dibuja
 // sin dividir entre cero.
+// La barra de presupuesto de la categoría se puede tocar para alternar entre
+// "gastado de límite" y "cuánto queda" en efectivo, igual que la de la principal.
+// Vuelve a la vista normal si cambias de categoría o de mes.
+let cdBudgetShowRemaining = false;
+let lastCdBudgetKey = undefined;
 function renderBudgetBar(catId, spent){
   const bar = document.getElementById('cdBudgetBar');
   if(!bar) return;
+  const key = catId + '|' + cdYear + '-' + cdMonth;
+  if(key !== lastCdBudgetKey){ lastCdBudgetKey = key; cdBudgetShowRemaining = false; }
   const limit = catBudgetOf(catId, cdYear, cdMonth);
   if(limit == null){
     bar.classList.remove('show');
     bar.innerHTML = '';
+    bar.onclick = null;
     return;
   }
   const over = spent > limit;
@@ -2773,14 +2817,24 @@ function renderBudgetBar(catId, spent){
   let state = '';
   if(over) state = 'over';
   else if(limit > 0 && pct >= 80) state = 'warn';
-  const statusTxt = over
-    ? 'Superado (S/ ' + fmt(spent - limit) + ' de más)'
-    : Math.round(pct) + '%';
-  bar.className = 'cd-budget-bar show ' + state;
-  bar.innerHTML =
-    '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
-    '<span class="bb-status">' + statusTxt + '</span></div>' +
-    '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  bar.className = 'cd-budget-bar show clickable ' + state;
+  if(cdBudgetShowRemaining){
+    const remaining = limit - spent;
+    const labelHtml = remaining >= 0
+      ? '<span class="bb-remaining">💵 Te faltan S/ ' + fmt(remaining) + ' para el límite</span>'
+      : '<span class="bb-remaining">⚠️ Te pasaste por S/ ' + fmt(Math.abs(remaining)) + '</span>';
+    bar.innerHTML = '<div class="bb-label">' + labelHtml + '</div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  } else {
+    const statusTxt = over
+      ? 'Superado (S/ ' + fmt(spent - limit) + ' de más)'
+      : Math.round(pct) + '%';
+    bar.innerHTML =
+      '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
+      '<span class="bb-status">' + statusTxt + '</span></div>' +
+      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+  }
+  bar.onclick = ()=>{ cdBudgetShowRemaining = !cdBudgetShowRemaining; renderBudgetBar(catId, spent); };
 }
 function themeAccentHex(){
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8442c';
@@ -2882,7 +2936,7 @@ function closeCategoryDetail(){
   const page = document.getElementById('catDetailPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   document.getElementById('cdColorPanel').classList.remove('open');
   hideCdTip();
 }
@@ -3165,6 +3219,17 @@ function renderFeed(){
     feed.innerHTML = ordered.map(txHtml).join('');
   }
 
+  // Si hay una búsqueda o filtro activo, muestra al pie el total de lo filtrado
+  // (ej: buscar "ISIL" para ver cuánto suma en pasajes de instituto). Los
+  // movimientos de producto (no efectivo) no suman.
+  const ff = feedSearch;
+  const filterActive = !!((ff.text && ff.text.trim()) || ff.min != null || ff.max != null || ff.from || ff.to);
+  if(filterActive){
+    const filteredTotal = base.reduce((s,e)=> s + (isStockMovement(e) ? 0 : e.amount), 0);
+    feed.insertAdjacentHTML('beforeend',
+      '<div class="feed-filter-total">Total de lo filtrado (' + base.length + '): <b>S/ ' + fmt(filteredTotal) + '</b></div>');
+  }
+
   // Borrado (misma lógica en ambos modos).
   feed.querySelectorAll('.del').forEach(btn=>{
     btn.onclick = (ev)=>{
@@ -3318,7 +3383,7 @@ function openEditExpense(id){
   const page = document.getElementById('editPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 
@@ -3326,7 +3391,7 @@ function closeEditExpense(){
   const page = document.getElementById('editPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
   editingId = null;
 }
 
@@ -3413,14 +3478,14 @@ function openRecurringPage(){
   const page = document.getElementById('recurringPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 function closeRecurringPage(){
   const page = document.getElementById('recurringPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
 }
 function showRecList(){
   document.getElementById('recListWrap').style.display = '';
@@ -3805,8 +3870,17 @@ function renderCashbackList(){
     box.innerHTML = '<div class="empty">Aún no registras cashback. Agrega tu primer retiro con el botón de abajo.</div>';
     return;
   }
-  const sorted = [...cashback].sort((a,b)=> new Date(b.date) - new Date(a.date));
-  box.innerHTML = sorted.map(c=>{
+  // Por defecto se listan solo los retiros del mes que se está viendo (mes tras
+  // mes, igual que el resumen de arriba). Con "Ver histórico" se ven todos.
+  let shown = [...cashback].sort((a,b)=> new Date(b.date) - new Date(a.date));
+  if(!cbShowHistory){
+    shown = shown.filter(c=>{ const d = new Date(c.date); return d.getFullYear() === viewYear && d.getMonth() === viewMonth; });
+  }
+  if(shown.length === 0){
+    box.innerHTML = '<div class="empty">Sin retiros de cashback en ' + cap(monthName) + '. Toca "Ver histórico" para ver todos.</div>';
+    return;
+  }
+  box.innerHTML = shown.map(c=>{
     const d = new Date(c.date);
     const dateStr = d.toLocaleDateString('es-PE', {day:'2-digit', month:'short', year:'numeric'});
     return '<div class="rec-item" data-id="' + c.id + '">' +
@@ -3883,14 +3957,14 @@ function openCashbackPage(){
   const page = document.getElementById('cashbackPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('cd-open');
+  lockBg();
   page.scrollTop = 0;
 }
 function closeCashbackPage(){
   const page = document.getElementById('cashbackPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('cd-open');
+  unlockBg();
 }
 
 document.getElementById('cashbackBtn').addEventListener('click', openCashbackPage);
