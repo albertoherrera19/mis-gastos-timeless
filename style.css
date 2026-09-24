@@ -942,6 +942,50 @@ input[type="text"]::placeholder{color:var(--muted);}
 .sim-mbar.evit.current .col{background:#5bd98a;}
 .sim-mbar .col .val{color:var(--bone);font-weight:700;font-size:9.5px;}
 /* Lista de marcado, colapsable por categoría */
+/* ---- Resumen del año ---- */
+.year-summary{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
+  margin-bottom:12px;
+}
+.year-scope-line{
+  font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--accent);font-weight:700;
+}
+.year-total{
+  font-family:monospace;font-size:30px;font-weight:700;
+  color:var(--bone);margin-top:4px;white-space:nowrap;
+}
+.year-total-sub{font-size:11px;color:var(--muted);margin-top:4px;}
+.year-current{
+  background:var(--accent-dim);
+  border:1px solid var(--accent);
+  border-radius:12px;
+  padding:12px 14px;
+  margin-bottom:16px;
+}
+.year-cur-title{font-size:13px;font-weight:700;color:var(--bone);}
+.year-cur-body{font-size:12px;color:var(--muted);line-height:1.5;margin-top:5px;}
+.year-cur-body b{color:var(--bone);font-family:monospace;}
+.year-cur-pct{font-weight:700;font-family:monospace;white-space:nowrap;}
+.year-cur-pct.up{color:#ff6b6b;}
+.year-cur-pct.down{color:#4bd07b;}
+.year-inprogress{
+  font-size:9px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--accent);font-weight:700;
+}
+.year-highlights,.year-budget{margin-bottom:16px;}
+.year-hl-row{
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:9px 0;border-bottom:1px solid var(--line);
+}
+.year-hl-row:last-child{border-bottom:none;}
+.year-hl-k{font-size:12px;color:var(--muted);flex-shrink:0;}
+.year-hl-v{font-size:12px;color:var(--bone);font-weight:700;text-align:right;min-width:0;}
+.year-hl-row.over .year-hl-v{color:#ff6b6b;}
+.year-ok{font-size:12px;color:var(--muted);padding:8px 0;}
 .sim-list-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:10px;}
 /* Toggle Marcar / Ver de la lista del simulador */
 .sim-list-modes{display:flex;gap:8px;margin-bottom:12px;}
