@@ -100,6 +100,22 @@ var FOTOS_FOLDER_NAME = 'Timeless - Fotos accesorios';
 var METAS_SHEET_NAME = 'Metas';
 var METAS_HEADERS = ['ID', 'DataJSON', 'ActualizadoEn'];
 
+// Pestaña "ContextoGastos" — la CONFIGURACIÓN de la app "Mis Gastos - Personal"
+// (presupuestos, grupos, gastos fijos, evitables, meta por rango y estado de
+// caja), que antes vivía SOLO en el localStorage del celular. La app la manda
+// sola: cada vez que Alberto cambia algo de eso (con debounce) y, al abrir la
+// app, todo junto si pasaron más de 24 h. Los GASTOS no pasan por acá: siguen
+// yendo a la pestaña "Gastos" como siempre.
+//
+// Mismo patrón que "Metas": una fila por CLAVE, upsert por la columna A, y
+// DataJSON como JSON libre — así la app puede cambiar la forma de sus datos sin
+// tener que tocar columnas acá.
+//
+// Claves que manda la app:
+//   presupuestos | grupos | recurrentes | evitables | metaRango | caja
+var CONTEXTO_SHEET_NAME = 'ContextoGastos';
+var CONTEXTO_HEADERS = ['Clave', 'DataJSON', 'ActualizadoEn'];
+
 // Recibe cada gasto (POST) y lo agrega como fila nueva, o un sync de datos.
 function doPost(e) {
   var data = JSON.parse(e.postData.contents);
@@ -116,6 +132,7 @@ function doPost(e) {
   if (data.type === 'gastoEliminar')       return handleGastoEliminar_(data);
   if (data.type === 'metaGuardar')         return handleMetaGuardar_(data);
   if (data.type === 'metaEliminar')        return handleMetaEliminar_(data);
+  if (data.type === 'contextoGuardar')     return handleContextoGuardar_(data);
 
   var lock = LockService.getScriptLock();
   try {
@@ -522,6 +539,53 @@ function getMetasVivo_() {
   });
 }
 
+// Crea o actualiza UNA clave de contexto de la app de gastos (upsert por clave,
+// nunca full-replace, así una clave no pisa a las demás). Mismo patrón que
+// handleMetaGuardar_.
+function handleContextoGuardar_(data) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    var clave = String(data.clave || '');
+    if (!clave) return json_({ ok: false, error: 'Falta clave' });
+    var sheet = getOrCreateNamedSheet_(CONTEXTO_SHEET_NAME);
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(CONTEXTO_HEADERS);
+      sheet.getRange(1, 1, 1, CONTEXTO_HEADERS.length).setFontWeight('bold');
+    }
+    var rowIdx = findRowById_(sheet, clave);
+    // data.data puede ser null a propósito (ej. metaRango cuando no hay meta).
+    var fila = [clave, JSON.stringify(data.data === undefined ? null : data.data), new Date()];
+    if (rowIdx === -1) sheet.appendRow(fila);
+    else sheet.getRange(rowIdx, 1, 1, CONTEXTO_HEADERS.length).setValues([fila]);
+    return json_({ ok: true, clave: clave });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (ignore) {}
+  }
+}
+
+// Devuelve TODO el contexto en vivo para ?action=contextoGastos, como un objeto
+// { clave: { data: ..., actualizadoEn: ISO } } — más cómodo de leer que un array.
+function getContextoGastosVivo_() {
+  var out = {};
+  var sheet = getOrCreateNamedSheet_(CONTEXTO_SHEET_NAME);
+  var last = sheet.getLastRow();
+  if (last < 2) return out;
+  var rows = sheet.getRange(2, 1, last - 1, CONTEXTO_HEADERS.length).getValues();
+  rows.forEach(function (r) {
+    if (!r[0]) return;
+    var parsed = null;
+    try { parsed = JSON.parse((r[1] === '' || r[1] === null) ? 'null' : r[1]); } catch (ignore) { parsed = null; }
+    out[String(r[0])] = {
+      data: parsed,
+      actualizadoEn: r[2] ? new Date(r[2]).toISOString() : ''
+    };
+  });
+  return out;
+}
+
 // Busca la fila (1-indexed) cuya columna A coincide con el ID. -1 si no existe.
 function findRowById_(sheet, id) {
   var last = sheet.getLastRow();
@@ -906,6 +970,9 @@ function doGet(e) {
   }
   if (action === 'metas') {
     return json_({ ok: true, metas: getMetasVivo_() });
+  }
+  if (action === 'contextoGastos') {
+    return json_({ ok: true, contexto: getContextoGastosVivo_() });
   }
   return json_({ ok: true, service: 'Mis Gastos - Personal + sync Ventas/Stocks/Campañas/Instagram', version: 'v7-metas', sheet: SHEET_NAME });
 }
