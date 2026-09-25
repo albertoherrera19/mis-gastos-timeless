@@ -942,6 +942,19 @@ input[type="text"]::placeholder{color:var(--muted);}
 .sim-mbar.evit.current .col{background:#5bd98a;}
 .sim-mbar .col .val{color:var(--bone);font-weight:700;font-size:9.5px;}
 /* Lista de marcado, colapsable por categoría */
+/* ---- Estado de caja (dentro de ⚙️) ---- */
+.caja-hint{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px;}
+.caja-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+.caja-field{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.caja-field span{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;}
+.caja-field input{
+  width:100%;min-width:0;background:var(--chip);border:1px solid var(--line);
+  border-radius:8px;color:var(--bone);font-family:monospace;font-size:13px;
+  padding:8px 10px;outline:none;margin-bottom:0;
+}
+.caja-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;}
+.caja-updated{font-size:11px;color:var(--muted);}
+
 /* ---- Resumen del año ---- */
 .year-summary{
   background:var(--card);

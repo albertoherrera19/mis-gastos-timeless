@@ -68,6 +68,21 @@
 <div class="theme-drawer" id="themeDrawer">
   <div class="title">Color</div>
   <div class="swatches" id="swatches"></div>
+  <div class="title backup-title">Estado de caja</div>
+  <div class="caja-hint">Anótalo a mano cuando cambie. Se manda a tu hoja para que el chat del dashboard lo pueda leer.</div>
+  <div class="caja-grid">
+    <label class="caja-field"><span>Línea de tarjeta</span><input type="number" id="cajaLinea" placeholder="0.00" inputmode="decimal" step="0.01"></label>
+    <label class="caja-field"><span>Disponible tarjeta</span><input type="number" id="cajaDisp" placeholder="0.00" inputmode="decimal" step="0.01"></label>
+    <label class="caja-field"><span>Efectivo</span><input type="number" id="cajaEfectivo" placeholder="0.00" inputmode="decimal" step="0.01"></label>
+    <label class="caja-field"><span>Cuota Yape</span><input type="number" id="cajaYapeCuota" placeholder="0.00" inputmode="decimal" step="0.01"></label>
+    <label class="caja-field"><span>Cuotas restantes</span><input type="number" id="cajaYapeRestantes" placeholder="0" min="0" step="1"></label>
+    <label class="caja-field"><span>Día de pago Yape</span><input type="number" id="cajaYapeDia" placeholder="15" min="1" max="31" step="1"></label>
+  </div>
+  <div class="caja-row">
+    <button class="backup-btn" id="cajaSaveBtn" type="button">Guardar estado de caja</button>
+    <span class="caja-updated" id="cajaUpdated"></span>
+  </div>
+
   <div class="title backup-title">Respaldo de datos</div>
   <div class="backup-row">
     <button class="backup-btn" id="exportBtn" type="button">⬇ Exportar datos</button>

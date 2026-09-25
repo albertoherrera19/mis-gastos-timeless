@@ -61,6 +61,8 @@ const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siemp
 const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
 const RANGE_GOAL_KEY = 'timeless_range_goal'; // meta puntual de gasto entre dos fechas (puede cruzar de un mes a otro)
 const FREQ_NOTE_KEY = 'timeless_freq_notes'; // nota frecuente por categoría, para llenar la Nota de un toque
+const CAJA_KEY = 'timeless_caja'; // estado de caja escrito a mano (tarjeta, efectivo, deuda Yape)
+const CONTEXT_LAST_SYNC_KEY = 'timeless_context_last_sync'; // último envío completo del contexto a Sheets (transitorio)
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
 const PRECREATE_GROUPS = true;
@@ -205,7 +207,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY, CAJA_KEY];
 
 function exportBackup(){
   const data = {};
@@ -752,6 +754,138 @@ function flushSheetsQueue(){
 
 window.addEventListener('online', flushSheetsQueue);
 
+/* ---------- Contexto de gastos → Sheets (pestaña "ContextoGastos") ----------
+   Manda la CONFIGURACIÓN de la app (presupuestos, grupos, gastos fijos,
+   evitables, meta por rango y estado de caja) a su propia pestaña, para que el
+   chat del dashboard la pueda leer cuando quiera sin pasar archivos a mano.
+   Los gastos en sí siguen yendo por su camino a la pestaña "Gastos": esto NO
+   los toca.
+   Usa la MISMA cola offline que los gastos (funciona sin internet y reintenta
+   solo). Cada clave va con debounce y se deduplica en la cola, así solo viaja
+   el último estado de cada una. Como el dashboard ve NOMBRES de categoría (no
+   ids) en la pestaña Gastos, cada payload lleva el nombre resuelto además del id. */
+const CONTEXT_KEYS = ['presupuestos', 'grupos', 'recurrentes', 'evitables', 'metaRango', 'caja'];
+const CONTEXT_RESYNC_MS = 24 * 60 * 60 * 1000;
+
+let caja = {};
+function loadCaja(){
+  try{ caja = JSON.parse(localStorage.getItem(CAJA_KEY)) || {}; }
+  catch(e){ caja = {}; }
+}
+function saveCaja(){
+  try{ localStorage.setItem(CAJA_KEY, JSON.stringify(caja)); }catch(e){}
+  syncContext('caja');
+}
+
+function ctxCatName(catId){
+  const c = catById(catId);
+  return c ? c.name : catId;
+}
+
+function buildContextData(clave){
+  if(clave === 'presupuestos'){
+    const nombres = {};
+    Object.keys(categoryBudgets).forEach(mk=>{
+      Object.keys(categoryBudgets[mk] || {}).forEach(catId=>{ nombres[catId] = ctxCatName(catId); });
+    });
+    return { porCategoria: categoryBudgets, porMesYGrupo: monthBudgets, nombresCategoria: nombres };
+  }
+  if(clave === 'grupos'){
+    const negocio = cashbackExcludeGroup ? (catGroups.find(x=>x.id === cashbackExcludeGroup) || null) : null;
+    return {
+      grupos: catGroups.map(g=>({
+        id: g.id,
+        nombre: g.name,
+        categorias: (g.cats || []).map(id=>({ id: id, nombre: ctxCatName(id) }))
+      })),
+      grupoNegocio: negocio ? { id: negocio.id, nombre: negocio.name } : null
+    };
+  }
+  if(clave === 'recurrentes'){
+    return recurring.map(r=>({
+      id: r.id, nombre: r.name, monto: r.amount,
+      categoriaId: r.category, categoria: ctxCatName(r.category),
+      diaDesde: r.dayFrom, diaHasta: r.dayTo, pagado: r.paid || {}
+    }));
+  }
+  if(clave === 'evitables'){
+    return {
+      categoriasSiempreEvitable: simAutoAvoidCats.map(id=>({ id: id, nombre: ctxCatName(id) })),
+      gastosMarcados: avoidableIds,
+      excepciones: avoidableExceptions
+    };
+  }
+  if(clave === 'metaRango') return rangeGoal;
+  if(clave === 'caja') return caja;
+  return null;
+}
+
+// Encola una clave, reemplazando cualquier pendiente de la MISMA clave.
+function queueContextForSheets(clave){
+  if(!sheetsSyncEnabled()) return;
+  const q = loadSheetsQueue().filter(x=> !(x.type === 'contextoGuardar' && x.clave === clave));
+  q.push({ _qid: newQueueId(), type: 'contextoGuardar', clave: clave, data: buildContextData(clave) });
+  saveSheetsQueue(q);
+  flushSheetsQueue();
+}
+
+const ctxTimers = {};
+function syncContext(clave){
+  if(!sheetsSyncEnabled()) return;
+  clearTimeout(ctxTimers[clave]);
+  ctxTimers[clave] = setTimeout(()=> queueContextForSheets(clave), 1500);
+}
+
+// Al abrir la app: si pasó más de un día desde el último envío completo, manda
+// todas las claves, así la hoja no se queda vieja aunque no cambie nada.
+function syncAllContextIfStale(){
+  if(!sheetsSyncEnabled()) return;
+  let last = 0;
+  try{ last = parseInt(localStorage.getItem(CONTEXT_LAST_SYNC_KEY), 10) || 0; }catch(e){ last = 0; }
+  if(Date.now() - last < CONTEXT_RESYNC_MS) return;
+  CONTEXT_KEYS.forEach(k=> queueContextForSheets(k));
+  try{ localStorage.setItem(CONTEXT_LAST_SYNC_KEY, String(Date.now())); }catch(e){}
+}
+
+// Formulario "Estado de caja" (dentro de ⚙️): se escribe a mano y viaja a la
+// hoja como la clave 'caja'. Campo vacío = null (no sabemos ese dato).
+function renderCajaForm(){
+  const setVal = (id, v)=>{ const el = document.getElementById(id); if(el) el.value = (v == null) ? '' : v; };
+  setVal('cajaLinea', caja.lineaTarjeta);
+  setVal('cajaDisp', caja.dispTarjeta);
+  setVal('cajaEfectivo', caja.efectivo);
+  setVal('cajaYapeCuota', caja.yapeCuota);
+  setVal('cajaYapeRestantes', caja.yapeCuotasRestantes);
+  setVal('cajaYapeDia', caja.yapeDiaPago);
+  const upd = document.getElementById('cajaUpdated');
+  if(upd){
+    upd.textContent = caja.actualizadoEn
+      ? ('Actualizado: ' + new Date(caja.actualizadoEn).toLocaleDateString('es-PE', {day:'2-digit', month:'short', year:'numeric'}))
+      : 'Sin registrar todavía';
+  }
+}
+function saveCajaFromForm(){
+  const num = (id)=>{
+    const el = document.getElementById(id);
+    if(!el || el.value.trim() === '') return null;
+    const v = parseFloat(el.value);
+    return isNaN(v) ? null : v;
+  };
+  caja = {
+    lineaTarjeta: num('cajaLinea'),
+    dispTarjeta: num('cajaDisp'),
+    efectivo: num('cajaEfectivo'),
+    yapeCuota: num('cajaYapeCuota'),
+    yapeCuotasRestantes: num('cajaYapeRestantes'),
+    yapeDiaPago: num('cajaYapeDia'),
+    actualizadoEn: new Date().toISOString()
+  };
+  saveCaja();
+  renderCajaForm();
+  showToast('✓ Estado de caja guardado', 'ok');
+}
+document.getElementById('cajaSaveBtn').addEventListener('click', saveCajaFromForm);
+
 // Aviso breve tipo "toast" que aparece y se desvanece solo.
 function showToast(msg, kind){
   const t = document.getElementById('toast');
@@ -800,6 +934,7 @@ function loadCatGroups(){
 }
 function saveCatGroups(){
   try{ localStorage.setItem(GROUPS_KEY, JSON.stringify(catGroups)); }catch(e){}
+  syncContext('grupos');
 }
 // Categorías del grupo activo (o null = todas).
 function activeGroupCats(){
@@ -1059,6 +1194,7 @@ function saveCashbackExclude(){
     if(cashbackExcludeGroup) localStorage.setItem(CASHBACK_EXCLUDE_KEY, cashbackExcludeGroup);
     else localStorage.removeItem(CASHBACK_EXCLUDE_KEY);
   }catch(e){}
+  syncContext('grupos');
 }
 
 // ---------- Envío del cashback a Google Sheets (para el dashboard) ----------
@@ -1473,6 +1609,7 @@ function loadAvoidable(){
 }
 function saveAvoidable(){
   try{ localStorage.setItem(AVOIDABLE_KEY, JSON.stringify(avoidableIds)); }catch(e){}
+  syncContext('evitables');
 }
 function loadSimAutoAvoidCats(){
   try{ simAutoAvoidCats = JSON.parse(localStorage.getItem(SIM_AUTO_AVOID_KEY)) || []; }
@@ -1480,6 +1617,7 @@ function loadSimAutoAvoidCats(){
 }
 function saveSimAutoAvoidCats(){
   try{ localStorage.setItem(SIM_AUTO_AVOID_KEY, JSON.stringify(simAutoAvoidCats)); }catch(e){}
+  syncContext('evitables');
 }
 function loadAvoidableExceptions(){
   try{ avoidableExceptions = JSON.parse(localStorage.getItem(AVOIDABLE_EXCEPT_KEY)) || []; }
@@ -1487,6 +1625,7 @@ function loadAvoidableExceptions(){
 }
 function saveAvoidableExceptions(){
   try{ localStorage.setItem(AVOIDABLE_EXCEPT_KEY, JSON.stringify(avoidableExceptions)); }catch(e){}
+  syncContext('evitables');
 }
 
 // Si la categoría del gasto tiene la regla "siempre innecesaria" activa, es
@@ -2422,6 +2561,7 @@ function loadCategoryBudgets(){
 }
 function saveCategoryBudgets(){
   try{ localStorage.setItem(BUDGET_KEY, JSON.stringify(categoryBudgets)); }catch(e){}
+  syncContext('presupuestos');
 }
 // Si el objeto guardado está en el formato viejo (llaves = ids de categoría, no
 // 'YYYY-MM'), se mete tal cual bajo el mes actual y se conserva desde ahí por mes.
@@ -2474,6 +2614,7 @@ function loadMonthBudgets(){
 }
 function saveMonthBudgets(){
   try{ localStorage.setItem(MONTH_BUDGET_KEY, JSON.stringify(monthBudgets)); }catch(e){}
+  syncContext('presupuestos');
 }
 // Migración única: el presupuesto recurrente viejo (un solo valor para todos
 // los meses) se traslada al mes real de hoy, y se borran las llaves viejas
@@ -2617,6 +2758,7 @@ function saveRangeGoal(){
     if(rangeGoal) localStorage.setItem(RANGE_GOAL_KEY, JSON.stringify(rangeGoal));
     else localStorage.removeItem(RANGE_GOAL_KEY);
   }catch(e){}
+  syncContext('metaRango');
 }
 // Gastos reales (sin productos) dentro de una ventana de fechas, del más nuevo
 // al más viejo. Sirve tanto para el cálculo del total como para la lista editable.
@@ -3463,6 +3605,7 @@ function renderRecAlertBadge(){
 }
 function saveRecurring(){
   try{ localStorage.setItem(RECURRING_KEY, JSON.stringify(recurring)); }catch(e){}
+  syncContext('recurrentes');
 }
 
 function openRecurringPage(){
@@ -4413,6 +4556,9 @@ loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
 renderCats();
+loadCaja();
+renderCajaForm();
 loadExpenses();
 flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes
 flushCashbackIfDirty(); // reintenta el envío del cashback si quedó pendiente
+syncAllContextIfStale(); // re-manda la configuración a la hoja si ya pasó un día
