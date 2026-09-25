@@ -61,7 +61,6 @@ const SIM_AUTO_AVOID_KEY = 'timeless_sim_auto_avoid_cats'; // categorías "siemp
 const AVOIDABLE_EXCEPT_KEY = 'timeless_avoidable_exceptions'; // gastos marcados a mano como necesarios pese a la regla
 const RANGE_GOAL_KEY = 'timeless_range_goal'; // meta puntual de gasto entre dos fechas (puede cruzar de un mes a otro)
 const FREQ_NOTE_KEY = 'timeless_freq_notes'; // nota frecuente por categoría, para llenar la Nota de un toque
-const CAJA_KEY = 'timeless_caja'; // estado de caja escrito a mano (tarjeta, efectivo, deuda Yape)
 const CONTEXT_LAST_SYNC_KEY = 'timeless_context_last_sync'; // último envío completo del contexto a Sheets (transitorio)
 // En la app PERSONAL se pre-crean los grupos "Timeless" y "Personal".
 // (En el repo de amigos este flag va en false — diferencia intencional.)
@@ -207,7 +206,7 @@ document.getElementById('gearBtn').addEventListener('click', ()=>{
 // ---------- Respaldo de datos: exportar / importar ----------
 // Descarga/restaura gastos, categorías personalizadas y preferencias.
 // No incluye la cola de sincronización a Sheets (es solo un estado transitorio).
-const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY, CAJA_KEY];
+const BACKUP_KEYS = [STORAGE_KEY, THEME_KEY, CUSTOM_CAT_KEY, ACCENT_THEME_KEY, CAT_COLOR_KEY, EYEBROW_KEY, BUDGET_KEY, GROUPS_KEY, RECURRING_KEY, GENERAL_BUDGET_KEY, GROUP_BUDGET_KEY, MONTH_BUDGET_KEY, REMINDERS_KEY, CAT_OVERRIDE_KEY, DELETED_BASE_KEY, SHOW_CAT_COMPARE_KEY, CASHBACK_KEY, CASHBACK_EXCLUDE_KEY, AVOIDABLE_KEY, CAT_ORDER_KEY, SIM_AUTO_AVOID_KEY, AVOIDABLE_EXCEPT_KEY, RANGE_GOAL_KEY, FREQ_NOTE_KEY];
 
 function exportBackup(){
   const data = {};
@@ -756,26 +755,16 @@ window.addEventListener('online', flushSheetsQueue);
 
 /* ---------- Contexto de gastos → Sheets (pestaña "ContextoGastos") ----------
    Manda la CONFIGURACIÓN de la app (presupuestos, grupos, gastos fijos,
-   evitables, meta por rango y estado de caja) a su propia pestaña, para que el
-   chat del dashboard la pueda leer cuando quiera sin pasar archivos a mano.
+   evitables y meta por rango) a su propia pestaña, para que el chat del
+   dashboard la pueda leer cuando quiera sin pasar archivos a mano.
    Los gastos en sí siguen yendo por su camino a la pestaña "Gastos": esto NO
    los toca.
    Usa la MISMA cola offline que los gastos (funciona sin internet y reintenta
    solo). Cada clave va con debounce y se deduplica en la cola, así solo viaja
    el último estado de cada una. Como el dashboard ve NOMBRES de categoría (no
    ids) en la pestaña Gastos, cada payload lleva el nombre resuelto además del id. */
-const CONTEXT_KEYS = ['presupuestos', 'grupos', 'recurrentes', 'evitables', 'metaRango', 'caja'];
+const CONTEXT_KEYS = ['presupuestos', 'grupos', 'recurrentes', 'evitables', 'metaRango'];
 const CONTEXT_RESYNC_MS = 24 * 60 * 60 * 1000;
-
-let caja = {};
-function loadCaja(){
-  try{ caja = JSON.parse(localStorage.getItem(CAJA_KEY)) || {}; }
-  catch(e){ caja = {}; }
-}
-function saveCaja(){
-  try{ localStorage.setItem(CAJA_KEY, JSON.stringify(caja)); }catch(e){}
-  syncContext('caja');
-}
 
 function ctxCatName(catId){
   const c = catById(catId);
@@ -816,7 +805,6 @@ function buildContextData(clave){
     };
   }
   if(clave === 'metaRango') return rangeGoal;
-  if(clave === 'caja') return caja;
   return null;
 }
 
@@ -846,45 +834,6 @@ function syncAllContextIfStale(){
   CONTEXT_KEYS.forEach(k=> queueContextForSheets(k));
   try{ localStorage.setItem(CONTEXT_LAST_SYNC_KEY, String(Date.now())); }catch(e){}
 }
-
-// Formulario "Estado de caja" (dentro de ⚙️): se escribe a mano y viaja a la
-// hoja como la clave 'caja'. Campo vacío = null (no sabemos ese dato).
-function renderCajaForm(){
-  const setVal = (id, v)=>{ const el = document.getElementById(id); if(el) el.value = (v == null) ? '' : v; };
-  setVal('cajaLinea', caja.lineaTarjeta);
-  setVal('cajaDisp', caja.dispTarjeta);
-  setVal('cajaEfectivo', caja.efectivo);
-  setVal('cajaYapeCuota', caja.yapeCuota);
-  setVal('cajaYapeRestantes', caja.yapeCuotasRestantes);
-  setVal('cajaYapeDia', caja.yapeDiaPago);
-  const upd = document.getElementById('cajaUpdated');
-  if(upd){
-    upd.textContent = caja.actualizadoEn
-      ? ('Actualizado: ' + new Date(caja.actualizadoEn).toLocaleDateString('es-PE', {day:'2-digit', month:'short', year:'numeric'}))
-      : 'Sin registrar todavía';
-  }
-}
-function saveCajaFromForm(){
-  const num = (id)=>{
-    const el = document.getElementById(id);
-    if(!el || el.value.trim() === '') return null;
-    const v = parseFloat(el.value);
-    return isNaN(v) ? null : v;
-  };
-  caja = {
-    lineaTarjeta: num('cajaLinea'),
-    dispTarjeta: num('cajaDisp'),
-    efectivo: num('cajaEfectivo'),
-    yapeCuota: num('cajaYapeCuota'),
-    yapeCuotasRestantes: num('cajaYapeRestantes'),
-    yapeDiaPago: num('cajaYapeDia'),
-    actualizadoEn: new Date().toISOString()
-  };
-  saveCaja();
-  renderCajaForm();
-  showToast('✓ Estado de caja guardado', 'ok');
-}
-document.getElementById('cajaSaveBtn').addEventListener('click', saveCajaFromForm);
 
 // Aviso breve tipo "toast" que aparece y se desvanece solo.
 function showToast(msg, kind){
@@ -4556,8 +4505,6 @@ loadShowCatCompare();
 document.getElementById('mtCompareToggleBtn').classList.toggle('active', showCatCompare);
 document.getElementById('cdCompareToggleBtn').classList.toggle('active', showCatCompare);
 renderCats();
-loadCaja();
-renderCajaForm();
 loadExpenses();
 flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes
 flushCashbackIfDirty(); // reintenta el envío del cashback si quedó pendiente
