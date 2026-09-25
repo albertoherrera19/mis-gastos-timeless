@@ -134,6 +134,14 @@ function doPost(e) {
   if (data.type === 'metaEliminar')        return handleMetaEliminar_(data);
   if (data.type === 'contextoGuardar')     return handleContextoGuardar_(data);
 
+  // Red de seguridad (24-sep-2026): si llega un `type` que no reconocemos, se
+  // RECHAZA en vez de caer al bloque de abajo y guardarse como si fuera un
+  // gasto. Pasó de verdad: un payload nuevo ('contextoGuardar') llegó antes de
+  // que el script lo manejara y creó una fila basura en "Gastos" (ID y
+  // categoría vacíos, monto 0). Es seguro porque los gastos normales que manda
+  // la app NO llevan campo `type` — solo {id, date, amount, category, note}.
+  if (data.type) return json_({ ok: false, error: 'Tipo no reconocido: ' + data.type });
+
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(20000); // evita filas duplicadas si llegan dos a la vez
