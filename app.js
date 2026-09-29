@@ -1103,7 +1103,7 @@ function renderAll(){
   renderDonut();
   renderBreakdown();
   renderSimLauncher();
-  renderRangeGoal();
+  renderRangeGoalBars(); // solo las barras: los campos del formulario los llena openRangeGoalPage
   renderMonths();
   renderFeed();
 }
@@ -2692,10 +2692,15 @@ document.getElementById('mtBudgetClear').addEventListener('click', ()=>{
    este es un LÍMITE PUNTUAL entre dos fechas cualquiera, aunque crucen de un
    mes a otro (ej. ciclo de tarjeta: 25 de un mes al 12 del siguiente). Solo
    uno activo a la vez; se reemplaza/borra cuando ya no aplica. Cuenta el gasto
-   real (sin productos), sin importar el grupo activo. Además, el usuario puede
-   EXCLUIR gastos puntuales del rango (ej. comida, un gasto fijo) para que no
-   sumen a este límite: sus ids se guardan en `excluded`. */
-let rangeGoal = null; // {from:'YYYY-MM-DD', to:'YYYY-MM-DD', amount:Number, excluded:[ids]} | null
+   real (sin productos). Además, el usuario puede EXCLUIR gastos puntuales del
+   rango (ej. comida, un gasto fijo) para que no sumen a este límite: sus ids se
+   guardan en `excluded` — y marcarlos ya guarda solo, sin tocar "Guardar"
+   (ese botón es solo para las fechas y el monto máximo).
+   `group` = el grupo activo cuando se creó (null = Predeterminado/todos). Si
+   tiene grupo, solo cuenta los gastos de ESE grupo y la barrita de la pantalla
+   principal se muestra únicamente en Predeterminado y en ese mismo grupo (no
+   en los otros, donde no aplica). */
+let rangeGoal = null; // {from:'YYYY-MM-DD', to:'YYYY-MM-DD', amount:Number, excluded:[ids], group:id|null} | null
 let rgDraftExcluded = new Set(); // borrador de ids excluidos mientras se edita la página
 function loadRangeGoal(){
   try{ rangeGoal = JSON.parse(localStorage.getItem(RANGE_GOAL_KEY)) || null; }
@@ -2711,32 +2716,58 @@ function saveRangeGoal(){
 }
 // Gastos reales (sin productos) dentro de una ventana de fechas, del más nuevo
 // al más viejo. Sirve tanto para el cálculo del total como para la lista editable.
-function rangeExpensesInWindow(fromStr, toStr){
+function rangeExpensesInWindow(fromStr, toStr, groupId){
   if(!fromStr || !toStr) return [];
   const from = new Date(fromStr + 'T00:00:00');
   const to = new Date(toStr + 'T23:59:59');
   return expenses
-    .filter(e=>{ const d = new Date(e.date); return d >= from && d <= to && !isStockMovement(e); })
+    .filter(e=>{
+      if(isStockMovement(e)) return false;
+      if(groupId && !expenseInGroup(e, groupId)) return false;
+      const d = new Date(e.date);
+      return d >= from && d <= to;
+    })
     .sort((a,b)=> new Date(b.date) - new Date(a.date));
+}
+// Grupo al que aplica el límite: el guardado si ya existe, si no el grupo
+// activo (así al crearlo se detecta solo desde donde estás parado).
+function rgEffectiveGroup(){
+  if(rangeGoal) return rangeGoal.group || null;
+  return activeGroup || null;
+}
+function rgGroupName(gid){
+  if(!gid) return 'Todos';
+  const g = catGroups.find(x=>x.id === gid);
+  return g ? g.name : 'grupo';
 }
 function rangeGoalSpent(){
   if(!rangeGoal) return 0;
   const excluded = rangeGoal.excluded || [];
-  return rangeExpensesInWindow(rangeGoal.from, rangeGoal.to)
+  return rangeExpensesInWindow(rangeGoal.from, rangeGoal.to, rangeGoal.group || null)
     .filter(e=> excluded.indexOf(e.id) === -1)
     .reduce((s,e)=> s + e.amount, 0);
 }
+// Vuelca el límite guardado a los campos del formulario. Se llama solo al abrir
+// la página o tras Guardar/Quitar: NUNCA al marcar un gasto, para no pisar lo
+// que el usuario esté escribiendo en las fechas o el monto.
 function renderRangeGoal(){
-  const tease = document.getElementById('rangeGoalTease');
-  const bar = document.getElementById('rangeGoalBar');
-  const mtBar = document.getElementById('mtRangeGoalBar');
-  if(!tease) return;
+  if(!document.getElementById('rangeGoalTease')) return;
   document.getElementById('rgFrom').value = rangeGoal ? rangeGoal.from : '';
   document.getElementById('rgTo').value = rangeGoal ? rangeGoal.to : '';
   document.getElementById('rgAmount').value = rangeGoal ? rangeGoal.amount : '';
   renderRgExpList();
+  renderRangeGoalBars();
+}
+// Solo los textos/barras (tease, barra de la página y espejo de la principal).
+function renderRangeGoalBars(){
+  const tease = document.getElementById('rangeGoalTease');
+  const bar = document.getElementById('rangeGoalBar');
+  const mtBar = document.getElementById('mtRangeGoalBar');
+  if(!tease) return;
   if(!rangeGoal){
-    tease.textContent = 'Pon un límite de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro)';
+    const destino = activeGroup ? rgGroupName(activeGroup) : null;
+    tease.textContent = 'Pon un límite de gasto para un rango puntual (ej. tu ciclo de tarjeta, aunque cruce de un mes a otro).' +
+      (destino ? ' Se aplicará solo a "' + destino + '", porque es el grupo que tienes activo.' : '');
     if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
     if(mtBar){
       mtBar.style.display = 'block';
@@ -2749,7 +2780,10 @@ function renderRangeGoal(){
   const spent = rangeGoalSpent();
   const fromLbl = new Date(rangeGoal.from + 'T12:00:00').toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
   const toLbl = new Date(rangeGoal.to + 'T12:00:00').toLocaleDateString('es-PE', {day:'2-digit', month:'short'});
-  tease.textContent = 'Del ' + fromLbl + ' al ' + toLbl + ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount);
+  const gName = rangeGoal.group ? rgGroupName(rangeGoal.group) : null;
+  tease.textContent = 'Del ' + fromLbl + ' al ' + toLbl + (gName ? ' · ' + gName : '') +
+    ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) +
+    (gName ? ' (solo cuenta gastos de ' + gName + ')' : '');
   if(bar){
     const pct = Math.min(spent / rangeGoal.amount * 100, 100);
     const over = spent > rangeGoal.amount;
@@ -2764,16 +2798,25 @@ function renderRangeGoal(){
   // Espejo bajo el total del mes: no depende del mes que se esté viendo (viewYear/
   // viewMonth), siempre muestra el MISMO límite de rango sin importar a qué mes navegue.
   if(mtBar){
-    const pct = Math.min(spent / rangeGoal.amount * 100, 100);
-    const over = spent > rangeGoal.amount;
-    let state = ''; if(over) state = 'over'; else if(pct >= 80) state = 'warn';
-    const statusTxt = over ? 'Superado (S/ ' + fmt(spent - rangeGoal.amount) + ' de más)' : Math.round(pct) + '%';
-    mtBar.style.display = 'block';
-    mtBar.className = 'cd-budget-bar mt-range-bar show ' + state;
-    mtBar.innerHTML =
-      '<div class="bb-label"><span>📅 ' + fromLbl + '–' + toLbl + ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
-      '<span class="bb-status">✎ ' + statusTxt + '</span></div>' +
-      '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+    // Si el límite es de un grupo, solo se muestra en Predeterminado y en ESE
+    // grupo — en los demás no aplica y solo confundiría.
+    const aplica = !rangeGoal.group || !activeGroup || activeGroup === rangeGoal.group;
+    if(!aplica){
+      mtBar.style.display = 'none';
+      mtBar.innerHTML = '';
+    } else {
+      const pct = Math.min(spent / rangeGoal.amount * 100, 100);
+      const over = spent > rangeGoal.amount;
+      let state = ''; if(over) state = 'over'; else if(pct >= 80) state = 'warn';
+      const statusTxt = over ? 'Superado (S/ ' + fmt(spent - rangeGoal.amount) + ' de más)' : Math.round(pct) + '%';
+      mtBar.style.display = 'block';
+      mtBar.className = 'cd-budget-bar mt-range-bar show ' + state;
+      mtBar.innerHTML =
+        '<div class="bb-label"><span>📅 ' + fromLbl + '–' + toLbl + (gName ? ' · ' + gName : '') +
+        ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
+        '<span class="bb-status">✎ ' + statusTxt + '</span></div>' +
+        '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
+    }
   }
 }
 // Lista editable de gastos dentro del rango que se está configurando (lee las
@@ -2788,7 +2831,7 @@ function renderRgExpList(){
   const to = document.getElementById('rgTo').value;
   const valid = from && to && new Date(from + 'T00:00:00') <= new Date(to + 'T00:00:00');
   if(!valid){ block.style.display = 'none'; listEl.innerHTML = ''; return; }
-  const list = rangeExpensesInWindow(from, to);
+  const list = rangeExpensesInWindow(from, to, rgEffectiveGroup());
   block.style.display = 'block';
   if(list.length === 0){
     listEl.innerHTML = '<div class="rg-exp-empty">No hay gastos en este rango todavía.</div>';
@@ -2818,9 +2861,22 @@ function renderRgExpList(){
     chk.addEventListener('change', ()=>{
       const id = chk.getAttribute('data-id');
       if(chk.checked) rgDraftExcluded.add(id); else rgDraftExcluded.delete(id);
+      persistRgExcluded(); // marcar ya guarda: "Guardar" es solo para fechas y monto
       renderRgExpList();
     });
   });
+}
+// Guarda al toque los gastos marcados fuera, sin esperar al botón "Guardar".
+// Solo aplica si YA hay un límite guardado (si todavía no existe, el borrador
+// se guarda junto con las fechas y el monto al crearlo). Se limita a los ids
+// que caen dentro de la ventana YA guardada, para no mezclar con fechas que el
+// usuario esté editando pero aún no haya guardado.
+function persistRgExcluded(){
+  if(!rangeGoal) return;
+  const idsGuardados = rangeExpensesInWindow(rangeGoal.from, rangeGoal.to, rangeGoal.group || null).map(e=>e.id);
+  rangeGoal.excluded = idsGuardados.filter(id=> rgDraftExcluded.has(id));
+  saveRangeGoal();
+  renderRangeGoalBars(); // actualiza totales sin tocar lo que haya en los campos
 }
 function openRangeGoalPage(){
   const page = document.getElementById('rangeGoalPage');
@@ -2850,9 +2906,9 @@ document.getElementById('rgSave').addEventListener('click', ()=>{
   if(!from || !to || !(amount > 0)){ alert('Completa fecha inicio, fecha fin y un monto válido.'); return; }
   if(new Date(from + 'T00:00:00') > new Date(to + 'T00:00:00')){ alert('La fecha de inicio debe ser antes que la fecha final.'); return; }
   // Solo guardamos como excluidos los ids que de verdad caen en la ventana final.
-  const idsInWindow = rangeExpensesInWindow(from, to).map(e=>e.id);
+  const idsInWindow = rangeExpensesInWindow(from, to, rgEffectiveGroup()).map(e=>e.id);
   const excluded = idsInWindow.filter(id=> rgDraftExcluded.has(id));
-  rangeGoal = {from: from, to: to, amount: amount, excluded: excluded};
+  rangeGoal = {from: from, to: to, amount: amount, excluded: excluded, group: rgEffectiveGroup()};
   rgDraftExcluded = new Set(excluded);
   saveRangeGoal();
   renderRangeGoal();
