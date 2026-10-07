@@ -542,8 +542,13 @@ input[type="text"]::placeholder{color:var(--muted);}
 }
 .mt-range-bar .bb-label{align-items:center;}
 .mt-range-bar .bb-label > span:first-child{flex:1;min-width:0;}
-.mt-range-bar.hidden-bar{padding:6px 10px;}
-.mt-range-bar.hidden-bar .bb-label{opacity:.75;margin-bottom:0;}
+/* Con el límite oculto, la barrita desaparece de arriba y queda solo este
+   botoncito debajo de "Comparar meses" para volver a prenderla. */
+.rg-hidden-slot{display:flex;justify-content:flex-end;margin:-4px 0 10px;}
+.rg-hidden-btn{
+  background:transparent;border:0;color:var(--muted);
+  font-size:15px;line-height:1;padding:2px 2px;cursor:pointer;opacity:.6;
+}
 .freq-note-form-hint{margin:6px 0 10px;}
 .emoji-input{
   width:56px !important;

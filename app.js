@@ -1031,23 +1031,34 @@ function passesActiveGroup(e){
 // frena el scroll táctil; fijar el body con position:fixed sí. Se guarda y
 // restaura la posición de scroll. Un contador soporta overlays apilados (ej.
 // abrir "editar gasto" encima del detalle de categoría) sin perder la posición.
-let _bgScrollY = 0, _bgLockDepth = 0;
-function lockBg(){
-  if(_bgLockDepth === 0){
+let _bgScrollY = 0;
+// ¿Hay alguna pantalla overlay abierta? Todas comparten la clase .cat-detail-page.
+function anyOverlayOpen(){
+  return !!document.querySelector('.cat-detail-page.open');
+}
+// Pone el bloqueo del fondo de acuerdo a lo que DE VERDAD está abierto. Antes
+// esto era un contador y se desbalanceaba (abrir dos veces la misma pantalla
+// dejaba el body trabado y la app sin scroll). Al deducirlo del DOM es
+// idempotente: se puede llamar de más sin romper nada, y cualquier render
+// posterior corrige un estado trabado.
+function syncBgLock(){
+  const debeBloquear = anyOverlayOpen();
+  const bloqueado = document.body.classList.contains('cd-open');
+  if(debeBloquear === bloqueado) return;
+  if(debeBloquear){
     _bgScrollY = window.scrollY || document.documentElement.scrollTop || 0;
     document.body.style.top = (-_bgScrollY) + 'px';
     document.body.classList.add('cd-open');
-  }
-  _bgLockDepth++;
-}
-function unlockBg(){
-  _bgLockDepth = Math.max(0, _bgLockDepth - 1);
-  if(_bgLockDepth === 0){
+  } else {
     document.body.classList.remove('cd-open');
     document.body.style.top = '';
     window.scrollTo(0, _bgScrollY);
   }
 }
+// Se mantienen los dos nombres para no tocar las ~9 pantallas que los usan:
+// se llaman DESPUÉS de poner/quitar la clase .open de la pantalla.
+function lockBg(){ syncBgLock(); }
+function unlockBg(){ syncBgLock(); }
 
 // Filtra una lista de gastos por el grupo activo. Usa los grupos EFECTIVOS: un
 // gasto con grupo forzado se sale del grupo de su categoría y aparece solo en
@@ -1208,6 +1219,7 @@ function renderAll(){
   renderRangeGoalBars(); // solo las barras: los campos del formulario los llena openRangeGoalPage
   renderMonths();
   renderFeed();
+  syncBgLock(); // red de seguridad: si quedó trabado sin pantalla abierta, se suelta
 }
 
 function currentMonthExpenses(){
@@ -2959,6 +2971,8 @@ function renderRangeGoalBars(){
   const tease = document.getElementById('rangeGoalTease');
   const bar = document.getElementById('rangeGoalBar');
   const mtBar = document.getElementById('mtRangeGoalBar');
+  const slot = document.getElementById('rgHiddenSlot');
+  if(slot) slot.style.display = rangeBarHidden ? 'flex' : 'none';
   if(!tease) return;
   if(!rangeGoal){
     const destino = activeGroup ? rgGroupName(activeGroup) : null;
@@ -2966,7 +2980,7 @@ function renderRangeGoalBars(){
       (destino ? ' Se aplicará a "' + destino + '" porque es el grupo que tienes activo, pero lo puedes cambiar abajo.' : '');
     if(bar){ bar.className = 'cd-budget-bar'; bar.innerHTML = ''; }
     if(mtBar){
-      if(rangeBarHidden){ renderRangeBarOculta(mtBar); return; }
+      if(rangeBarHidden){ ocultarBarraRango(mtBar); return; }
       mtBar.style.display = 'block';
       mtBar.className = 'cd-budget-bar mt-range-bar show';
       mtBar.innerHTML = '<div class="bb-label"><span>📅 Límite por rango de fechas</span>' +
@@ -3004,7 +3018,7 @@ function renderRangeGoalBars(){
       mtBar.style.display = 'none';
       mtBar.innerHTML = '';
     } else if(rangeBarHidden){
-      renderRangeBarOculta(mtBar);
+      ocultarBarraRango(mtBar);
     } else {
       const pct = Math.min(spent / rangeGoal.amount * 100, 100);
       const over = spent > rangeGoal.amount;
@@ -3023,9 +3037,8 @@ function renderRangeGoalBars(){
 }
 // Ojo de la barrita: tocarlo oculta/muestra, sin abrir la página del límite.
 function ojoHtml(){
-  return '<button type="button" class="bb-eye" aria-label="' +
-    (rangeBarHidden ? 'Mostrar el límite' : 'Ocultar el límite') + '">' +
-    (rangeBarHidden ? '🙈' : '👁') + '</button>';
+  // Solo se pinta cuando la barrita está visible (oculta no se pinta nada arriba).
+  return '<button type="button" class="bb-eye" aria-label="Ocultar el límite">👁</button>';
 }
 function enlazarOjo(cont){
   const ojo = cont.querySelector('.bb-eye');
@@ -3035,12 +3048,12 @@ function enlazarOjo(cont){
     toggleRangeBarHidden();
   });
 }
-// Versión mínima cuando está oculta: una sola línea con el ojo tachado.
-function renderRangeBarOculta(mtBar){
-  mtBar.style.display = 'block';
-  mtBar.className = 'cd-budget-bar mt-range-bar show hidden-bar';
-  mtBar.innerHTML = '<div class="bb-label"><span>📅 Límite oculto</span>' + ojoHtml() + '</div>';
-  enlazarOjo(mtBar);
+// Oculta: la barrita desaparece del todo de la parte de arriba (que es de lo
+// que se trata, ganar espacio). Para volver a prenderla queda el botoncito 🙈
+// de más abajo, debajo del gráfico de "Comparar meses".
+function ocultarBarraRango(mtBar){
+  mtBar.style.display = 'none';
+  mtBar.innerHTML = '';
 }
 // Lista editable de gastos dentro del rango que se está configurando (lee las
 // fechas de los inputs, no del rangeGoal guardado, para que se actualice en vivo
@@ -3125,6 +3138,7 @@ document.getElementById('mtRangeGoalBar').addEventListener('click', ()=>{
   openRangeGoalPage();
 });
 document.getElementById('rangeBarToggle').addEventListener('click', toggleRangeBarHidden);
+document.getElementById('rgHiddenBtn').addEventListener('click', toggleRangeBarHidden);
 document.getElementById('rgBack').addEventListener('click', closeRangeGoalPage);
 // Al cambiar las fechas, refresca la lista de gastos del rango en vivo.
 document.getElementById('rgFrom').addEventListener('change', renderRgExpList);
