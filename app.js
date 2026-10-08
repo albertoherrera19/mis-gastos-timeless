@@ -2749,9 +2749,10 @@ function monthNetTotalForGroup(gid){
 }
 // Barras de presupuesto del mes (reusan el estilo de la barra por categoría).
 // En una pestaña de grupo se ve SOLO el presupuesto de ese grupo. En
-// Predeterminado se ven todos los que haya ese mes: el general (que sí cuenta
-// todo) y uno por cada grupo con presupuesto, y el de un grupo cuenta SOLO los
-// gastos de ESE grupo — un tope de "Personal" no se infla con lo de Timeless.
+// Predeterminado manda el presupuesto general: si existe, se ve solo ese (y sí
+// cuenta todo el mes). Si NO hay general, se ven los de los grupos que tengan
+// uno, y cada barra cuenta SOLO los gastos de ESE grupo — así un tope puesto en
+// "Personal" se sigue viendo en Predeterminado sin inflarse con lo de Timeless.
 // Cada barra se puede tocar para alternar entre "gastado de límite" y "cuánto
 // queda"; vuelve a la vista normal al cambiar de mes o de pestaña.
 let mtBudgetRemaining = new Set(); // llaves de las barras mostrando "cuánto queda"
@@ -2769,13 +2770,13 @@ function renderMtBudgetBar(spent){
   if(activeGroup){
     if(bucket[activeGroup] > 0) barras.push({key: activeGroup, nombre: '', limit: bucket[activeGroup], spent: spent});
   } else {
-    if(bucket.general > 0) barras.push({key: 'general', nombre: '', limit: bucket.general, spent: spent});
-    catGroups.forEach(g=>{
-      if(bucket[g.id] > 0) barras.push({key: g.id, nombre: g.name, limit: bucket[g.id], spent: monthNetTotalForGroup(g.id)});
-    });
-    // Con más de una barra, la general se nombra para que no se confunda con
-    // la de un grupo (esa sí cuenta absolutamente todo).
-    if(barras.length > 1 && barras[0].key === 'general') barras[0].nombre = 'Todos';
+    if(bucket.general > 0){
+      barras.push({key: 'general', nombre: '', limit: bucket.general, spent: spent});
+    } else {
+      catGroups.forEach(g=>{
+        if(bucket[g.id] > 0) barras.push({key: g.id, nombre: g.name, limit: bucket[g.id], spent: monthNetTotalForGroup(g.id)});
+      });
+    }
   }
   box.innerHTML = '';
   barras.forEach(b=>{
