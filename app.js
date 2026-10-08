@@ -2741,52 +2741,74 @@ function renderMtBudgetPanel(){
   if(title) title.textContent = base + ' de ' + monthName + ' (opcional)';
   if(input) input.value = currentBudgetValue() || '';
 }
-// Barra de progreso gastado/límite para el contexto actual (reusa el estilo de
-// la barra de presupuesto por categoría). Se puede tocar para alternar entre
-// "gastado de límite" y "cuánto queda en efectivo" — vuelve a la vista normal
-// si cambias de mes o de grupo, para no dejarlo en un estado raro sin querer.
-let mtBudgetShowRemaining = false;
+// Total neto del mes que se está viendo, contando SOLO los gastos de un grupo
+// (o todos si no se pasa grupo). Mismo criterio que el total de arriba.
+function monthNetTotalForGroup(gid){
+  const list = gid ? filterByGroupId(currentMonthExpenses(), gid) : currentMonthExpenses();
+  return netTotal(list, viewYear, viewMonth);
+}
+// Barras de presupuesto del mes (reusan el estilo de la barra por categoría).
+// En una pestaña de grupo se ve SOLO el presupuesto de ese grupo. En
+// Predeterminado se ven todos los que haya ese mes: el general (que sí cuenta
+// todo) y uno por cada grupo con presupuesto, y el de un grupo cuenta SOLO los
+// gastos de ESE grupo — un tope de "Personal" no se infla con lo de Timeless.
+// Cada barra se puede tocar para alternar entre "gastado de límite" y "cuánto
+// queda"; vuelve a la vista normal al cambiar de mes o de pestaña.
+let mtBudgetRemaining = new Set(); // llaves de las barras mostrando "cuánto queda"
 let lastMtBudgetCtxKey = undefined;
 function renderMtBudgetBar(spent){
-  const bar = document.getElementById('mtBudgetBar');
-  if(!bar) return;
-  const ctx = currentBudgetContext();
-  const ctxKey = (ctx.isGroup ? ctx.key : 'general') + '|' + viewYear + '-' + viewMonth;
+  const box = document.getElementById('mtBudgetBar');
+  if(!box) return;
+  const ctxKey = (activeGroup || 'general') + '|' + viewYear + '-' + viewMonth;
   if(ctxKey !== lastMtBudgetCtxKey){
     lastMtBudgetCtxKey = ctxKey;
-    mtBudgetShowRemaining = false;
+    mtBudgetRemaining = new Set();
   }
-  const limit = currentBudgetValue();
-  if(!(limit > 0)){
-    bar.classList.remove('show');
-    bar.innerHTML = '';
-    bar.onclick = null;
-    return;
-  }
-  const pct = spent / limit * 100;
-  const clamped = Math.min(pct, 100);
-  let state = '';
-  if(pct >= 100) state = 'over';
-  else if(pct >= 80) state = 'warn';
-  bar.className = 'cd-budget-bar show clickable ' + state;
-  if(mtBudgetShowRemaining){
-    const remaining = limit - spent;
-    const labelHtml = remaining >= 0
-      ? '<span class="bb-remaining">💵 Puedes gastar S/ ' + fmt(remaining) + ' más este mes</span>'
-      : '<span class="bb-remaining">⚠️ Te pasaste por S/ ' + fmt(Math.abs(remaining)) + '</span>';
-    bar.innerHTML =
-      '<div class="bb-label">' + labelHtml + '</div>' +
-      '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+  const bucket = monthBudgets[budgetMonthKey(viewYear, viewMonth)] || {};
+  const barras = [];
+  if(activeGroup){
+    if(bucket[activeGroup] > 0) barras.push({key: activeGroup, nombre: '', limit: bucket[activeGroup], spent: spent});
   } else {
-    const statusTxt = pct >= 100
-      ? 'Superado (' + Math.round(pct) + '%)'
-      : Math.round(pct) + '%';
-    bar.innerHTML =
-      '<div class="bb-label"><span>Presupuesto: S/ ' + fmt(spent) + ' de S/ ' + fmt(limit) + '</span>' +
-      '<span class="bb-status">' + statusTxt + '</span></div>' +
-      '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+    if(bucket.general > 0) barras.push({key: 'general', nombre: '', limit: bucket.general, spent: spent});
+    catGroups.forEach(g=>{
+      if(bucket[g.id] > 0) barras.push({key: g.id, nombre: g.name, limit: bucket[g.id], spent: monthNetTotalForGroup(g.id)});
+    });
+    // Con más de una barra, la general se nombra para que no se confunda con
+    // la de un grupo (esa sí cuenta absolutamente todo).
+    if(barras.length > 1 && barras[0].key === 'general') barras[0].nombre = 'Todos';
   }
-  bar.onclick = ()=>{ mtBudgetShowRemaining = !mtBudgetShowRemaining; renderMtBudgetBar(spent); };
+  box.innerHTML = '';
+  barras.forEach(b=>{
+    const pct = b.spent / b.limit * 100;
+    const clamped = Math.min(pct, 100);
+    let state = '';
+    if(pct >= 100) state = 'over';
+    else if(pct >= 80) state = 'warn';
+    const el = document.createElement('div');
+    el.className = 'cd-budget-bar show clickable ' + state;
+    const quien = b.nombre ? ' ' + b.nombre : '';
+    if(mtBudgetRemaining.has(b.key)){
+      const resto = b.limit - b.spent;
+      const txt = resto >= 0
+        ? '💵' + (b.nombre ? ' ' + b.nombre + ':' : '') + ' Puedes gastar S/ ' + fmt(resto) + ' más este mes'
+        : '⚠️' + (b.nombre ? ' ' + b.nombre + ':' : '') + ' Te pasaste por S/ ' + fmt(Math.abs(resto));
+      el.innerHTML =
+        '<div class="bb-label"><span class="bb-remaining">' + txt + '</span></div>' +
+        '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+    } else {
+      const statusTxt = pct >= 100 ? 'Superado (' + Math.round(pct) + '%)' : Math.round(pct) + '%';
+      el.innerHTML =
+        '<div class="bb-label"><span>Presupuesto' + quien + ': S/ ' + fmt(b.spent) + ' de S/ ' + fmt(b.limit) + '</span>' +
+        '<span class="bb-status">' + statusTxt + '</span></div>' +
+        '<div class="bb-track"><div class="bb-fill" style="width:' + clamped + '%"></div></div>';
+    }
+    el.addEventListener('click', ()=>{
+      if(mtBudgetRemaining.has(b.key)) mtBudgetRemaining.delete(b.key);
+      else mtBudgetRemaining.add(b.key);
+      renderMtBudgetBar(spent);
+    });
+    box.appendChild(el);
+  });
 }
 document.getElementById('mtBudgetBtn').addEventListener('click', ()=>{
   document.getElementById('mtBudgetPanel').classList.toggle('open');

@@ -1246,6 +1246,7 @@ body.cd-open{
   margin-top:10px;
 }
 .cd-budget-bar.show{display:block;}
+.mt-budget-bars:empty{display:none;}
 .cd-budget-bar .bb-label{
   display:flex;
   justify-content:space-between;
