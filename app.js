@@ -73,6 +73,40 @@ const EYEBROW_DEFAULT = 'Timeless · Control personal';
 // URL del Web App de Apps Script (termina en /exec). Mientras esté el texto
 // de relleno, la app funciona exactamente igual que siempre: solo localStorage.
 const SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyrBdHPotM_u1YiXfc3glhlz3aIZM6_GYsPxl4YLFAQeUpzla17j5YGRspCkd7cRix_/exec';
+/* ---------- Clave de acceso al Apps Script ----------
+ * El Apps Script puede exigir una clave para escribir. Se escribe UNA VEZ
+ * POR APARATO y se guarda solo en este navegador: no esta en el repo ni
+ * viaja a ningun lado que no sea el propio Apps Script.
+ *
+ * Para escribirla: abrir la app con #clave al final de la direccion.
+ *
+ * OJO: estos envios van con mode:'no-cors', asi que la app NO puede leer la
+ * respuesta y NO se entera si la clave esta mal. Despues de activarla, hay
+ * que comprobar a mano que un gasto nuevo llegue al Sheets.
+ */
+const CLAVE_API_KEY = 'timeless_clave_api';
+function claveApi(){
+  try{ return localStorage.getItem(CLAVE_API_KEY) || ''; }catch(e){ return ''; }
+}
+function cuerpoApi(obj){
+  const k = claveApi();
+  const o = Object.assign({}, obj || {});
+  if(k) o.k = k;
+  return JSON.stringify(o);
+}
+if(typeof location !== 'undefined' && location.hash === '#clave'){
+  setTimeout(() => {
+    let actual = ''; try{ actual = localStorage.getItem(CLAVE_API_KEY) || ''; }catch(e){}
+    const v = prompt('Clave de acceso de Timeless para este aparato:' +
+                     (actual ? '\n\n(ya hay una guardada — escribe la nueva, o cancela para dejarla)' : ''), actual);
+    if(v !== null){
+      try{ localStorage.setItem(CLAVE_API_KEY, String(v).trim()); }catch(e){}
+      history.replaceState(null,'',location.pathname);
+      location.reload();
+    }
+  }, 300);
+}
+
 const SHEETS_PENDING_KEY = 'timeless_sheets_pending';
 
 // Temas "neutros": solo cambian fondo/tarjetas, conservan el ultimo acento elegido.
@@ -830,7 +864,7 @@ function flushSheetsQueue(){
   fetch(SHEETS_WEBHOOK_URL, {
     method: 'POST',
     mode: 'no-cors', // evita bloqueos CORS; no necesitamos leer la respuesta
-    body: JSON.stringify(item)
+    body: cuerpoApi(item)
   }).then(()=>{
     const rest = loadSheetsQueue().filter(x=> (x._qid || x.id) !== (item._qid || item.id));
     saveSheetsQueue(rest);
@@ -1289,7 +1323,7 @@ function syncCashbackToSheets(){
   fetch(SHEETS_WEBHOOK_URL, {
     method: 'POST',
     mode: 'no-cors', // fire-and-forget, igual que el envío de gastos
-    body: JSON.stringify({ type: 'cashbackSync', rows: rows })
+    body: cuerpoApi({ type: 'cashbackSync', rows: rows })
   }).then(()=>{
     try{ localStorage.removeItem(CASHBACK_SYNC_DIRTY_KEY); }catch(e){}
   }).catch(()=>{
