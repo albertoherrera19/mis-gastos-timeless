@@ -4590,10 +4590,314 @@ function renderYearBudget(series){
     : '<div class="year-ok">✅ No te pasaste de ningún presupuesto en ' + yearView + '.</div>';
 }
 
-document.getElementById('yearBtn').addEventListener('click', openYearPage);
+// El 🗓️ abre un menú chico: Resumen del mes o Resumen del año.
+document.getElementById('yearBtn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  document.getElementById('resumenMenu').classList.toggle('open');
+});
+document.addEventListener('click', (e)=>{
+  const menu = document.getElementById('resumenMenu');
+  if(menu && !menu.contains(e.target)) menu.classList.remove('open');
+});
+document.getElementById('optResumenMes').addEventListener('click', ()=>{
+  document.getElementById('resumenMenu').classList.remove('open');
+  openMonthPage();
+});
+document.getElementById('optResumenAnio').addEventListener('click', ()=>{
+  document.getElementById('resumenMenu').classList.remove('open');
+  openYearPage();
+});
 document.getElementById('yearBack').addEventListener('click', closeYearPage);
 document.getElementById('yearPrev').addEventListener('click', ()=>{ yearView--; yearActiveCat = null; renderYear(); });
 document.getElementById('yearNext').addEventListener('click', ()=>{ yearView++; yearActiveCat = null; renderYear(); });
+
+/* ---------- Resumen del mes (página completa) ----------
+   Responde la pregunta de "¿cuánto llevo en cada categoría y hasta cuánto
+   puedo gastar?": el tope del mes con su ritmo, una barra por categoría con lo
+   que le queda, y un bloque de recomendaciones que dice de dónde recortar
+   cuando una categoría se pasó. Los topes por categoría son los mismos que se
+   ponen dentro de cada categoría (⚙️), y el del mes el del 🎯. */
+let msYear = 0, msMonth = 0, msScope = null;
+
+function msCatBucket(){ return categoryBudgets[budgetMonthKey(msYear, msMonth)] || {}; }
+// Tope del mes para lo que se esté viendo (general en "Todos", o el del grupo).
+function msMonthLimit(){
+  const b = monthBudgets[budgetMonthKey(msYear, msMonth)] || {};
+  const v = b[msScope || 'general'];
+  return (v > 0) ? v : null;
+}
+// Topes por grupo que existen este mes (para avisar en "Todos" que están ahí).
+function msOtherGroupLimits(){
+  const b = monthBudgets[budgetMonthKey(msYear, msMonth)] || {};
+  return catGroups.filter(g=> b[g.id] > 0).map(g=> ({name: g.name, limit: b[g.id]}));
+}
+// Días del mes y cuántos van corridos (el mes en curso cuenta hasta hoy).
+function msDays(){
+  const total = new Date(msYear, msMonth + 1, 0).getDate();
+  const hoy = new Date();
+  const enCurso = (hoy.getFullYear() === msYear && hoy.getMonth() === msMonth);
+  return {total: total, corridos: enCurso ? hoy.getDate() : total, enCurso: enCurso};
+}
+// Una fila por categoría: las que tienen gasto este mes y las que tienen tope.
+function msRows(){
+  const bucket = msCatBucket();
+  const gastado = {};
+  yearMonthExpenses(msYear, msMonth, msScope).forEach(e=>{
+    gastado[e.category] = (gastado[e.category] || 0) + e.amount;
+  });
+  const g = msScope ? catGroups.find(x=>x.id === msScope) : null;
+  const ids = {};
+  Object.keys(gastado).forEach(id=> ids[id] = true);
+  Object.keys(bucket).forEach(id=>{
+    // Con un grupo activo, solo sus categorías (las de otros grupos no aplican).
+    if(!g || g.cats.indexOf(id) !== -1) ids[id] = true;
+  });
+  return Object.keys(ids).map(id=>{
+    const c = catById(id) || {icon:'🗂️', name:'Otros'};
+    const limit = (bucket[id] != null) ? bucket[id] : null;
+    const spent = gastado[id] || 0;
+    return {id: id, icon: c.icon, name: c.name, spent: spent, limit: limit,
+            resto: (limit != null) ? (limit - spent) : null};
+  });
+}
+// Primero lo que se pasó, después lo más apretado, y al final lo que no tiene tope.
+function msSortRows(rows){
+  return rows.slice().sort((a,b)=>{
+    const ao = (a.limit != null && a.spent > a.limit) ? 1 : 0;
+    const bo = (b.limit != null && b.spent > b.limit) ? 1 : 0;
+    if(ao !== bo) return bo - ao;
+    if(ao === 1) return (b.spent - b.limit) - (a.spent - a.limit);
+    const at = (a.limit != null) ? 1 : 0, bt = (b.limit != null) ? 1 : 0;
+    if(at !== bt) return bt - at;
+    if(at === 1){
+      const ap = a.limit > 0 ? a.spent / a.limit : (a.spent > 0 ? 9 : 0);
+      const bp = b.limit > 0 ? b.spent / b.limit : (b.spent > 0 ? 9 : 0);
+      return bp - ap;
+    }
+    return b.spent - a.spent;
+  });
+}
+function msScopeName(){
+  if(!msScope) return 'todos tus gastos';
+  const g = catGroups.find(x=>x.id === msScope);
+  return g ? g.name : 'grupo';
+}
+function renderMsScope(){
+  const box = document.getElementById('msScopeOpts');
+  const row = document.getElementById('msScopeRow');
+  if(!box) return;
+  if(catGroups.length === 0){ if(row) row.style.display = 'none'; return; }
+  if(row) row.style.display = '';
+  let html = '<div class="gt-opt' + (!msScope ? ' selected' : '') + '" data-g="">Todos</div>';
+  catGroups.forEach(g=>{
+    html += '<div class="gt-opt' + (msScope === g.id ? ' selected' : '') + '" data-g="' + g.id + '">' + g.name + '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll('.gt-opt').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      msScope = el.getAttribute('data-g') || null;
+      renderMonthSummary();
+    });
+  });
+}
+// Bloque de arriba: total del mes, tope si lo hay, cuánto queda, ritmo diario y
+// proyección a fin de mes con el ritmo que llevas.
+function renderMsTop(){
+  const box = document.getElementById('msTop');
+  if(!box) return;
+  const gasto = yearMonthGross(msYear, msMonth, msScope);
+  const limit = msMonthLimit();
+  const d = msDays();
+  const notas = [];
+  let barra = '';
+  if(limit != null){
+    const pct = limit > 0 ? gasto / limit * 100 : (gasto > 0 ? 100 : 0);
+    const estado = pct >= 100 ? 'over' : (pct >= 80 ? 'warn' : '');
+    barra = '<div class="ms-track"><div class="ms-fill ' + estado + '" style="width:' + Math.min(pct, 100) + '%"></div></div>';
+    const resto = limit - gasto;
+    if(resto >= 0){
+      notas.push('Te quedan <b>S/ ' + fmt(resto) + '</b> de tu tope del mes.');
+      if(d.enCurso){
+        const faltan = Math.max(1, d.total - d.corridos + 1);
+        notas.push('Quedan <b>' + faltan + ' día' + (faltan === 1 ? '' : 's') + '</b>: puedes gastar <b>S/ ' + fmt(resto / faltan) + '</b> por día sin pasarte.');
+      }
+    } else {
+      notas.push('Te pasaste del tope del mes por <b>S/ ' + fmt(Math.abs(resto)) + '</b>.');
+    }
+    if(d.enCurso && d.corridos > 0){
+      const proy = gasto / d.corridos * d.total;
+      notas.push('A este ritmo cerrarías el mes en <b>S/ ' + fmt(proy) + '</b> (tope S/ ' + fmt(limit) + ').');
+    }
+  } else {
+    barra = '<div class="ms-track"><div class="ms-fill none" style="width:100%"></div></div>';
+    notas.push('No tienes tope para ' + (msScope ? '"' + msScopeName() + '"' : 'este mes') + '. Ponlo con el 🎯 de la pantalla principal y aquí verás cuánto te queda.');
+    const otros = msOtherGroupLimits();
+    if(!msScope && otros.length){
+      notas.push('Sí tienes tope por grupo: ' + otros.map(o=> o.name + ' S/ ' + fmt(o.limit)).join(' · ') + '. Cámbialo en "Ver" aquí arriba.');
+    }
+  }
+  box.innerHTML =
+    '<div class="ms-top-card">' +
+      '<div class="ms-top-head">' +
+        '<span class="ms-top-spent">S/ ' + fmt(gasto) + '</span>' +
+        '<span class="ms-top-of">' + (limit != null ? 'de S/ ' + fmt(limit) : 'gastado') + '</span>' +
+      '</div>' + barra +
+      '<div class="ms-top-notes">' + notas.map(n=> '<span>' + n + '</span>').join('') + '</div>' +
+    '</div>';
+}
+function renderMsCats(rows){
+  const box = document.getElementById('msCats');
+  if(!box) return;
+  if(rows.length === 0){
+    box.innerHTML = '<div class="empty">Todavía no hay gastos ni topes en este mes.</div>';
+    return;
+  }
+  box.innerHTML = msSortRows(rows).map(r=>{
+    let derecha, estado = '', pct;
+    if(r.limit == null){
+      derecha = '<span class="ms-row-right">sin tope</span>';
+      pct = 0; estado = 'none';
+    } else {
+      pct = r.limit > 0 ? r.spent / r.limit * 100 : (r.spent > 0 ? 100 : 0);
+      if(r.resto < 0){
+        derecha = '<span class="ms-row-right over">te pasaste S/ ' + fmt(Math.abs(r.resto)) + '</span>';
+        estado = 'over';
+      } else {
+        const clase = pct >= 80 ? 'warn' : 'ok';
+        derecha = '<span class="ms-row-right ' + clase + '">quedan S/ ' + fmt(r.resto) + '</span>';
+        estado = pct >= 80 ? 'warn' : '';
+      }
+    }
+    const montos = r.limit != null
+      ? 'S/ ' + fmt(r.spent) + ' de S/ ' + fmt(r.limit) + ' · ' + Math.round(pct) + '%'
+      : 'S/ ' + fmt(r.spent) + ' gastados';
+    return '<div class="ms-row">' +
+      '<div class="ms-row-head"><span>' + r.icon + '</span>' +
+      '<span class="ms-row-name">' + r.name + '</span>' + derecha + '</div>' +
+      '<div class="ms-row-amts">' + montos + '</div>' +
+      '<div class="ms-track"><div class="ms-fill ' + estado + '" style="width:' + Math.min(pct, 100) + '%"></div></div>' +
+    '</div>';
+  }).join('');
+}
+// Recomendaciones: de dónde recortar para compensar lo que se pasó, repartido
+// en proporción al margen que le queda a cada categoría (así no se vacía una sola).
+function renderMsAdvice(rows){
+  const box = document.getElementById('msAdvice');
+  if(!box) return;
+  const bloques = [];
+  const pasadas = rows.filter(r=> r.limit != null && r.resto < 0);
+  const conMargen = rows.filter(r=> r.limit != null && r.resto > 0).sort((a,b)=> b.resto - a.resto);
+  const exceso = pasadas.reduce((s,r)=> s + Math.abs(r.resto), 0);
+  const margen = conMargen.reduce((s,r)=> s + r.resto, 0);
+  const sinTope = rows.filter(r=> r.limit == null && r.spent > 0);
+
+  if(pasadas.length){
+    const detalle = pasadas.length === 1
+      ? pasadas[0].icon + ' ' + pasadas[0].name
+      : pasadas.map(r=> r.icon + ' ' + r.name + ' (S/ ' + fmt(Math.abs(r.resto)) + ')').join(', ');
+    if(margen >= exceso && exceso > 0){
+      // Se recorta de las que más aire tienen, de a una, hasta cubrirlo: una o
+      // dos categorías concretas son más fáciles de cumplir que migajas en todas.
+      const cortes = [];
+      let falta = exceso;
+      for(const r of conMargen){
+        if(falta <= 0.005 || cortes.length >= 3) break;
+        const baja = Math.min(r.resto, falta);
+        if(baja < 0.5) continue;
+        cortes.push({r: r, baja: baja});
+        falta -= baja;
+      }
+      bloques.push({clase:'bad', html:
+        'Te pasaste <b>S/ ' + fmt(exceso) + '</b> en ' + detalle + '.<br>' +
+        'Para cuadrar sin romper tu tope, recorta eso de lo que te sobra en las otras:' +
+        '<ul>' + cortes.map(x=>
+          '<li>' + x.r.icon + ' <b>' + x.r.name + '</b>: baja S/ ' + fmt(x.baja) +
+          ' (te quedarían S/ ' + fmt(x.r.resto - x.baja) + ' en vez de S/ ' + fmt(x.r.resto) + ')</li>').join('') +
+        '</ul>'});
+    } else {
+      bloques.push({clase:'bad', html:
+        'Te pasaste <b>S/ ' + fmt(exceso) + '</b> en ' + detalle + ' y con lo que te queda en las demás (<b>S/ ' + fmt(margen) + '</b>) no alcanza a cubrirlo. ' +
+        'Te faltarían <b>S/ ' + fmt(exceso - margen) + '</b>: o te pasas del mes, o recortas de algo que todavía no tiene tope.'});
+    }
+  } else if(rows.some(r=> r.limit != null)){
+    bloques.push({clase:'good', html:
+      'Ninguna categoría se pasó de su tope. Entre todas te queda <b>S/ ' + fmt(margen) + '</b> por gastar.'});
+  }
+
+  if(conMargen.length && !pasadas.length){
+    bloques.push({clase:'info', html:
+      'Donde más aire tienes: ' +
+      conMargen.slice(0, 3).map(r=> r.icon + ' <b>' + r.name + '</b> S/ ' + fmt(r.resto)).join(' · ') + '.'});
+  }
+
+  // El tope del mes manda sobre la suma de los topes por categoría.
+  const limitMes = msMonthLimit();
+  if(limitMes != null){
+    const gasto = yearMonthGross(msYear, msMonth, msScope);
+    const sumaTopes = rows.filter(r=> r.limit != null).reduce((s,r)=> s + r.limit, 0);
+    if(gasto <= limitMes && pasadas.length){
+      bloques.push({clase:'info', html:
+        'Ojo: aunque te hayas pasado por categoría, del tope del mes todavía te queda <b>S/ ' + fmt(limitMes - gasto) + '</b>. ' +
+        'Puedes dejarlo así y recortar después, o subirle el tope a esa categoría si ya no era realista.'});
+    }
+    if(sumaTopes > limitMes + 0.005){
+      bloques.push({clase:'info', html:
+        'La suma de tus topes por categoría (<b>S/ ' + fmt(sumaTopes) + '</b>) pasa tu tope del mes (<b>S/ ' + fmt(limitMes) + '</b>) por S/ ' + fmt(sumaTopes - limitMes) + '. ' +
+        'Si cumples todos por separado igual te pasarías del mes.'});
+    }
+  }
+
+  if(sinTope.length){
+    bloques.push({clase:'info', html:
+      'Sin tope este mes: ' + sinTope.slice(0, 5).map(r=> r.icon + ' ' + r.name + ' (S/ ' + fmt(r.spent) + ')').join(' · ') +
+      (sinTope.length > 5 ? ' y ' + (sinTope.length - 5) + ' más' : '') +
+      '. Ponles uno desde la categoría (⚙️) y entran en este cálculo.'});
+  }
+
+  box.innerHTML = bloques.length
+    ? bloques.map(b=> '<div class="ms-adv ' + b.clase + '">' + b.html + '</div>').join('')
+    : '<div class="ms-adv info">Pon topes por categoría (entra a una categoría → ⚙️) y aquí te digo cuánto te queda en cada una y de dónde recortar.</div>';
+}
+function renderMonthSummary(){
+  if(!document.getElementById('msLabel')) return;
+  const nombre = new Date(msYear, msMonth, 1).toLocaleDateString('es-PE', {month:'long', year:'numeric'});
+  document.getElementById('msLabel').textContent = cap(nombre);
+  const next = document.getElementById('msNext');
+  const hoy = new Date();
+  const esFuturo = (msYear > hoy.getFullYear()) || (msYear === hoy.getFullYear() && msMonth >= hoy.getMonth());
+  if(next) next.disabled = esFuturo;
+  renderMsScope();
+  const rows = msRows();
+  renderMsTop();
+  renderMsCats(rows);
+  renderMsAdvice(rows);
+}
+function openMonthPage(){
+  msYear = viewYear; msMonth = viewMonth; msScope = activeGroup;
+  const page = document.getElementById('monthPage');
+  page.classList.add('open');
+  page.setAttribute('aria-hidden', 'false');
+  lockBg();
+  page.scrollTop = 0;
+  renderMonthSummary();
+}
+function closeMonthPage(){
+  const page = document.getElementById('monthPage');
+  page.classList.remove('open');
+  page.setAttribute('aria-hidden', 'true');
+  unlockBg();
+}
+document.getElementById('monthBack').addEventListener('click', closeMonthPage);
+document.getElementById('msPrev').addEventListener('click', ()=>{
+  msMonth--; if(msMonth < 0){ msMonth = 11; msYear--; }
+  renderMonthSummary();
+});
+document.getElementById('msNext').addEventListener('click', ()=>{
+  const hoy = new Date();
+  if(msYear > hoy.getFullYear() || (msYear === hoy.getFullYear() && msMonth >= hoy.getMonth())) return;
+  msMonth++; if(msMonth > 11){ msMonth = 0; msYear++; }
+  renderMonthSummary();
+});
 
 /* ---------- Página de Cashback ---------- */
 let cbEditingId = null;
