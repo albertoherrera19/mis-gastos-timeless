@@ -3378,6 +3378,10 @@ function closeCategoryDetail(){
   unlockBg();
   document.getElementById('cdColorPanel').classList.remove('open');
   hideCdTip();
+  // Si se entró desde el Resumen del mes, ese queda detrás: hay que repintarlo
+  // por si se cambió el tope de la categoría o se editó algún gasto.
+  const ms = document.getElementById('monthPage');
+  if(ms && ms.classList.contains('open')) renderMonthSummary();
 }
 
 document.getElementById('cdBack').addEventListener('click', closeCategoryDetail);
@@ -4771,13 +4775,30 @@ function renderMsCats(rows){
     const montos = r.limit != null
       ? 'S/ ' + fmt(r.spent) + ' de S/ ' + fmt(r.limit) + ' · ' + Math.round(pct) + '%'
       : 'S/ ' + fmt(r.spent) + ' gastados';
-    return '<div class="ms-row">' +
+    return '<div class="ms-row" data-cat="' + r.id + '">' +
       '<div class="ms-row-head"><span>' + r.icon + '</span>' +
       '<span class="ms-row-name">' + r.name + '</span>' + derecha + '</div>' +
       '<div class="ms-row-amts">' + montos + '</div>' +
       '<div class="ms-track"><div class="ms-fill ' + estado + '" style="width:' + Math.min(pct, 100) + '%"></div></div>' +
     '</div>';
   }).join('');
+  box.querySelectorAll('.ms-row').forEach(row=>{
+    row.addEventListener('click', ()=> msOpenCat(row.getAttribute('data-cat')));
+  });
+}
+// Abrir la categoría desde el resumen. El detalle se abre ENCIMA del resumen,
+// así que al volver con ← se queda en el resumen y no salta a la pantalla
+// principal. Si el resumen estaba viendo otro mes u otro grupo, la app se mueve
+// a ese mes/grupo primero: el detalle lee viewYear/viewMonth y el grupo activo,
+// y así muestra exactamente lo mismo que la fila que tocaste.
+function msOpenCat(catId){
+  if(!catId) return;
+  if(viewYear !== msYear || viewMonth !== msMonth || activeGroup !== msScope){
+    viewYear = msYear; viewMonth = msMonth; activeGroup = msScope;
+    renderCatGroups();
+    renderAll();
+  }
+  openCategoryDetail(catId);
 }
 // Recomendaciones: de dónde recortar para compensar lo que se pasó, repartido
 // en proporción al margen que le queda a cada categoría (así no se vacía una sola).
