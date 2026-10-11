@@ -1065,6 +1065,15 @@ function passesActiveGroup(e){
 // frena el scroll táctil; fijar el body con position:fixed sí. Se guarda y
 // restaura la posición de scroll. Un contador soporta overlays apilados (ej.
 // abrir "editar gasto" encima del detalle de categoría) sin perder la posición.
+// Todas las pantallas overlay comparten el mismo z-index, así que si no se hace
+// nada manda el orden del HTML: abrir el detalle de categoría (que está arriba
+// en el archivo) desde el Resumen del mes (que está más abajo) lo dejaba TAPADO
+// y parecía que el toque no hacía nada. Al abrir, cada pantalla pasa al frente.
+let _overlayZ = 50;
+function bringToFront(page){
+  _overlayZ++;
+  page.style.zIndex = _overlayZ;
+}
 let _bgScrollY = 0;
 // ¿Hay alguna pantalla overlay abierta? Todas comparten la clase .cat-detail-page.
 function anyOverlayOpen(){
@@ -1205,6 +1214,7 @@ function openGroupEditor(gid){
   const page = document.getElementById('groupPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
 }
@@ -1213,6 +1223,7 @@ function closeGroupEditor(){
   const page = document.getElementById('groupPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
   editingGroupId = null;
 }
@@ -1822,6 +1833,7 @@ function openSimPage(){
   const page = document.getElementById('simPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
   renderSim();
@@ -1830,6 +1842,7 @@ function closeSimPage(){
   const page = document.getElementById('simPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
   renderSimLauncher(); // refresca el teaser por si marcaron cosas
 }
@@ -2551,6 +2564,7 @@ function openCategoryDetail(catId){
   const page = document.getElementById('catDetailPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
 
@@ -3180,6 +3194,7 @@ function openRangeGoalPage(){
   rgDraftCats = new Set(rangeGoal && rangeGoal.cats ? rangeGoal.cats : []);
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
   renderRangeGoal();
@@ -3188,6 +3203,7 @@ function closeRangeGoalPage(){
   const page = document.getElementById('rangeGoalPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
 }
 document.getElementById('mtRangeGoalBar').addEventListener('click', ()=>{
@@ -3375,6 +3391,7 @@ function closeCategoryDetail(){
   const page = document.getElementById('catDetailPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
   document.getElementById('cdColorPanel').classList.remove('open');
   hideCdTip();
@@ -3826,6 +3843,7 @@ function openEditExpense(id){
   const page = document.getElementById('editPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
 }
@@ -3834,6 +3852,7 @@ function closeEditExpense(){
   const page = document.getElementById('editPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
   editingId = null;
 }
@@ -3922,6 +3941,7 @@ function openRecurringPage(){
   const page = document.getElementById('recurringPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
 }
@@ -3929,6 +3949,7 @@ function closeRecurringPage(){
   const page = document.getElementById('recurringPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
 }
 function showRecList(){
@@ -4294,6 +4315,7 @@ function openYearPage(){
   const page = document.getElementById('yearPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
   renderYear();
@@ -4302,6 +4324,7 @@ function closeYearPage(){
   const page = document.getElementById('yearPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
 }
 
@@ -4898,6 +4921,7 @@ function openMonthPage(){
   const page = document.getElementById('monthPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
   renderMonthSummary();
@@ -4906,6 +4930,7 @@ function closeMonthPage(){
   const page = document.getElementById('monthPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
 }
 document.getElementById('monthBack').addEventListener('click', closeMonthPage);
@@ -5067,6 +5092,7 @@ function openCashbackPage(){
   const page = document.getElementById('cashbackPage');
   page.classList.add('open');
   page.setAttribute('aria-hidden', 'false');
+  bringToFront(page);
   lockBg();
   page.scrollTop = 0;
 }
@@ -5074,6 +5100,7 @@ function closeCashbackPage(){
   const page = document.getElementById('cashbackPage');
   page.classList.remove('open');
   page.setAttribute('aria-hidden', 'true');
+  page.style.zIndex = '';
   unlockBg();
 }
 
