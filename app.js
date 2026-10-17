@@ -3097,14 +3097,47 @@ function renderRangeGoalBars(){
       const statusTxt = over ? 'Superado (S/ ' + fmt(spent - rangeGoal.amount) + ' de más)' : Math.round(pct) + '%';
       mtBar.style.display = 'block';
       mtBar.className = 'cd-budget-bar mt-range-bar show ' + state;
+      // Izquierda: tocarla alterna entre el detalle y "cuánto te queda".
+      // Derecha (el "✎ 93%"): esa sí abre la página para editar el límite.
+      const resto = rangeGoal.amount - spent;
+      const diasQuedan = diasHastaFin(rangeGoal.to);
+      let izq;
+      if(rgMirrorShowRemaining){
+        izq = resto >= 0
+          ? '💵 Te quedan S/ ' + fmt(resto) + (diasQuedan > 0 ? ' · S/ ' + fmt(resto / diasQuedan) + '/día' : '')
+          : '⚠️ Te pasaste S/ ' + fmt(Math.abs(resto));
+      } else {
+        izq = '📅 ' + fromLbl + '–' + toLbl + (gName ? ' · ' + gName : '') +
+              ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount);
+      }
       mtBar.innerHTML =
-        '<div class="bb-label"><span>📅 ' + fromLbl + '–' + toLbl + (gName ? ' · ' + gName : '') +
-        ': S/ ' + fmt(spent) + ' de S/ ' + fmt(rangeGoal.amount) + '</span>' +
-        '<span class="bb-status">✎ ' + statusTxt + '</span>' + ojoHtml() + '</div>' +
+        '<div class="bb-label"><span class="bb-left">' + izq + '</span>' +
+        '<span class="bb-status bb-edit" title="Editar el límite">✎ ' + statusTxt + '</span>' + ojoHtml() + '</div>' +
         '<div class="bb-track"><div class="bb-fill" style="width:' + pct + '%"></div></div>';
       enlazarOjo(mtBar);
+      enlazarEditar(mtBar);
     }
   }
+}
+// Días que faltan (contando hoy) hasta la fecha final del límite.
+function diasHastaFin(toStr){
+  if(!toStr) return 0;
+  const fin = new Date(toStr + 'T23:59:59');
+  const hoy = new Date();
+  if(fin < hoy) return 0;
+  return Math.max(1, Math.ceil((fin - hoy) / 86400000));
+}
+// Alterna el texto de la izquierda de la barrita entre el detalle y lo que queda.
+let rgMirrorShowRemaining = false;
+// El "✎ 93%" es lo ÚNICO que abre la página del límite; el resto de la barrita
+// solo alterna el texto, para no entrar a editar sin querer.
+function enlazarEditar(cont){
+  const btn = cont.querySelector('.bb-edit');
+  if(!btn) return;
+  btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    openRangeGoalPage();
+  });
 }
 // Ojo de la barrita: tocarlo oculta/muestra, sin abrir la página del límite.
 function ojoHtml(){
@@ -3208,7 +3241,9 @@ function closeRangeGoalPage(){
 }
 document.getElementById('mtRangeGoalBar').addEventListener('click', ()=>{
   if(rangeBarHidden) return; // oculta: solo responde el ojo
-  openRangeGoalPage();
+  if(!rangeGoal){ openRangeGoalPage(); return; } // sin límite todavía: entra a crearlo
+  rgMirrorShowRemaining = !rgMirrorShowRemaining;
+  renderRangeGoalBars();
 });
 document.getElementById('rangeBarToggle').addEventListener('click', toggleRangeBarHidden);
 document.getElementById('rgHiddenBtn').addEventListener('click', toggleRangeBarHidden);
@@ -4729,12 +4764,43 @@ function renderMsScope(){
 }
 // Bloque de arriba: total del mes, tope si lo hay, cuánto queda, ritmo diario y
 // proyección a fin de mes con el ritmo que llevas.
+// Gastos fijos (los del 🔁) de este mes, separados en dos: los ids de los gastos
+// que YA se registraron desde un recurrente —para poder sacarlos del ritmo del
+// día a día— y lo que todavía falta pagar.
+// El ritmo diario se ensuciaba con pagos grandes y de una sola vez (la cuota del
+// Yape, un servicio): dividir TODO entre los días corridos daba una proyección
+// inflada. Ahora el ritmo sale solo del gasto suelto, y los fijos pendientes se
+// suman aparte porque son plata que ya se sabe que va a salir.
+function msFixedThisMonth(){
+  const mk = budgetMonthKey(msYear, msMonth);
+  const pagadosIds = {};
+  let pendientes = 0;
+  const nombres = [];
+  const g = msScope ? catGroups.find(x=>x.id === msScope) : null;
+  (typeof recurring !== 'undefined' ? recurring : []).forEach(r=>{
+    if(g && g.cats.indexOf(r.category) === -1) return; // no es de este grupo
+    const p = r.paid ? r.paid[mk] : null;
+    if(p){
+      if(typeof p === 'string') pagadosIds[p] = true; // gasto real enlazado
+    } else {
+      pendientes += (r.amount || 0);
+      nombres.push(r.name);
+    }
+  });
+  return {pagadosIds: pagadosIds, pendientes: pendientes, nombres: nombres};
+}
 function renderMsTop(){
   const box = document.getElementById('msTop');
   if(!box) return;
-  const gasto = yearMonthGross(msYear, msMonth, msScope);
+  const lista = yearMonthExpenses(msYear, msMonth, msScope);
+  const gasto = lista.reduce((s,e)=> s + e.amount, 0);
   const limit = msMonthLimit();
   const d = msDays();
+  const fijos = msFixedThisMonth();
+  const sueltoHastaHoy = lista.filter(e=> !fijos.pagadosIds[e.id]).reduce((s,e)=> s + e.amount, 0);
+  const porDia = d.corridos > 0 ? sueltoHastaHoy / d.corridos : 0;
+  const diasQueFaltan = Math.max(0, d.total - d.corridos);
+  const proy = gasto + porDia * diasQueFaltan + fijos.pendientes;
   const notas = [];
   let barra = '';
   if(limit != null){
@@ -4746,14 +4812,12 @@ function renderMsTop(){
       notas.push('Te quedan <b>S/ ' + fmt(resto) + '</b> de tu tope del mes.');
       if(d.enCurso){
         const faltan = Math.max(1, d.total - d.corridos + 1);
-        notas.push('Quedan <b>' + faltan + ' día' + (faltan === 1 ? '' : 's') + '</b>: puedes gastar <b>S/ ' + fmt(resto / faltan) + '</b> por día sin pasarte.');
+        const libre = resto - fijos.pendientes;
+        notas.push('Quedan <b>' + faltan + ' día' + (faltan === 1 ? '' : 's') + '</b>: puedes gastar <b>S/ ' + fmt(Math.max(0, libre) / faltan) + '</b> por día' +
+          (fijos.pendientes > 0 ? ' (ya descontando los fijos que faltan)' : ' sin pasarte') + '.');
       }
     } else {
       notas.push('Te pasaste del tope del mes por <b>S/ ' + fmt(Math.abs(resto)) + '</b>.');
-    }
-    if(d.enCurso && d.corridos > 0){
-      const proy = gasto / d.corridos * d.total;
-      notas.push('A este ritmo cerrarías el mes en <b>S/ ' + fmt(proy) + '</b> (tope S/ ' + fmt(limit) + ').');
     }
   } else {
     barra = '<div class="ms-track"><div class="ms-fill none" style="width:100%"></div></div>';
@@ -4762,6 +4826,19 @@ function renderMsTop(){
     if(!msScope && otros.length){
       notas.push('Sí tienes tope por grupo: ' + otros.map(o=> o.name + ' S/ ' + fmt(o.limit)).join(' · ') + '. Cámbialo en "Ver" aquí arriba.');
     }
+  }
+  // Proyección y fijos pendientes: valen con tope y sin tope.
+  if(d.enCurso && d.corridos > 0){
+    const partes = [];
+    if(porDia > 0.005) partes.push('S/ ' + fmt(porDia) + '/día de gasto suelto');
+    if(fijos.pendientes > 0) partes.push('S/ ' + fmt(fijos.pendientes) + ' de fijos que faltan');
+    notas.push('Cerrarías el mes en <b>S/ ' + fmt(proy) + '</b>' +
+      (partes.length ? ' (' + partes.join(' + ') + ')' : '') +
+      (limit != null ? ' · tope S/ ' + fmt(limit) : '') + '.');
+  }
+  if(fijos.pendientes > 0){
+    const nombres = fijos.nombres.slice(0, 3).join(', ') + (fijos.nombres.length > 3 ? ' y ' + (fijos.nombres.length - 3) + ' más' : '');
+    notas.push('🔁 Te falta pagar <b>S/ ' + fmt(fijos.pendientes) + '</b> de gastos fijos: ' + nombres + '.');
   }
   box.innerHTML =
     '<div class="ms-top-card">' +

@@ -1310,6 +1310,8 @@ body.cd-open{
 .cd-budget-bar.warn .bb-label .bb-status{color:#f2c94c;}
 .cd-budget-bar.over .bb-label .bb-status{color:#ff6b6b;}
 .mt-range-bar{cursor:pointer;}
+.mt-range-bar .bb-edit{cursor:pointer;padding:0 2px;}
+.mt-range-bar .bb-left{flex:1;min-width:0;}
 .cd-budget-bar.clickable{cursor:pointer;}
 .cd-budget-bar .bb-remaining{font-family:inherit;font-size:12px;color:var(--bone);font-weight:700;}
 /* Panel "Productos que salieron" (solo Canjes/Reposición) */
