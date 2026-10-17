@@ -897,11 +897,17 @@ function flushSheetsQueue(){
 }
 
 /* ---------- Aviso de "tus gastos no están llegando" ----------
- * Si hay cosas atascadas en la cola, se ve una franja arriba. Sin esto la app
- * no tiene forma de contarlo: el que registra un gasto ve el número subir y se
- * va tranquilo, aunque al Sheets no haya llegado nada.
+ * Alberto no quiere una franja en la pantalla principal (17-oct-2026): el
+ * aviso es un "!" rojo en el engranaje ⚙️, igual que el de gastos fijos en 🔁,
+ * y adentro, en "Conexión con el dashboard", se explica qué pasa.
+ *
+ * Sale el "!" cuando:
+ *  - el servidor rechazó un envío o la clave no coincide, o
+ *  - hay gastos esperando hace más de una hora (no es un corte de internet
+ *    de un ratito: algo está trabado).
  */
 const SYNC_ESTADO_KEY = 'timeless_sync_estado';
+const SYNC_ATASCADO_MS = 60 * 60 * 1000;
 function leerSyncEstado(){
   try{ return JSON.parse(localStorage.getItem(SYNC_ESTADO_KEY)) || {}; }catch(e){ return {}; }
 }
@@ -910,22 +916,52 @@ function guardarSyncEstado(o){
 }
 function marcarSyncOk(){
   guardarSyncEstado({ok: true, cuando: Date.now()});
+  pintarAvisoSync();
 }
 function marcarSyncError(motivo){
   guardarSyncEstado({ok: false, motivo: motivo, cuando: Date.now()});
   pintarAvisoSync();
 }
-function pintarAvisoSync(){
-  const caja = document.getElementById('syncAviso');
-  const txt = document.getElementById('syncAvisoText');
-  if(!caja || !txt) return;
-  const pend = loadSheetsQueue().length;
+// El id de cola lleva la hora en que se encoló: "q_<ms>_<azar>".
+function colaMasViejaMs(q){
+  let min = Infinity;
+  q.forEach(x => {
+    const m = String(x._qid || '').match(/^q_(\d+)_/);
+    if(m) min = Math.min(min, Number(m[1]));
+  });
+  return min === Infinity ? null : min;
+}
+// null = todo bien. Si no, {motivo, pend} con lo que hay que contarle.
+function problemaSync(){
+  const q = loadSheetsQueue();
+  const pend = q.filter(x => !x.type || x.type === 'gastoEliminar').length;
   const est = leerSyncEstado();
-  if(pend === 0){ caja.style.display = 'none'; return; }
-  caja.style.display = 'flex';
-  txt.textContent = est.motivo === 'clave'
-    ? '⚠️ ' + pend + (pend === 1 ? ' gasto no llegó' : ' gastos no llegaron') + ' al dashboard: la clave de este aparato no coincide.'
-    : '⚠️ ' + pend + (pend === 1 ? ' gasto está' : ' gastos están') + ' esperando para llegar al dashboard.';
+  if(est.ok === false) return {motivo: est.motivo || 'rechazo', pend: pend};
+  const vieja = colaMasViejaMs(q);
+  if(pend > 0 && vieja && Date.now() - vieja > SYNC_ATASCADO_MS) return {motivo: 'atascado', pend: pend};
+  return null;
+}
+function textoProblemaSync(p){
+  const cuantos = p.pend > 0 ? (p.pend === 1 ? '1 gasto no ha llegado' : p.pend + ' gastos no han llegado') + ' al dashboard. ' : '';
+  if(p.motivo === 'clave') return '❌ ' + cuantos + 'La clave de este aparato no coincide: tus gastos no se están pasando al dashboard. Toca "Cambiar clave" y escribe la del bloc de notas.';
+  if(p.motivo === 'atascado') return '⚠️ ' + cuantos + (p.pend === 1 ? 'Lleva' : 'Llevan') + ' más de una hora esperando. Toca "Probar conexión".';
+  return '❌ ' + cuantos + 'El servidor los rechazó. Toca "Probar conexión"; si sigue igual, avísale a Claude.';
+}
+let syncEstadoOcupado = false; // mientras un botón está mostrando su propio avance
+function pintarAvisoSync(){
+  const p = problemaSync();
+  const badge = document.getElementById('gearAlertBadge');
+  if(badge) badge.style.display = p ? '' : 'none';
+  if(syncEstadoOcupado) return;
+  const el = document.getElementById('syncEstado');
+  if(!el) return;
+  if(p){ el.textContent = textoProblemaSync(p); el.className = 'sync-estado mal'; return; }
+  const est = leerSyncEstado();
+  if(est.ok && est.cuando){
+    el.textContent = '✅ Tus gastos están llegando al dashboard. Último envío confirmado: ' +
+      new Date(est.cuando).toLocaleString('es-PE', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+    el.className = 'sync-estado ok';
+  }
 }
 
 /* ---------- Reenviar lo que no llegó ----------
@@ -5379,20 +5415,18 @@ flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes
 flushCashbackIfDirty(); // reintenta el envío del cashback si quedó pendiente
 syncAllContextIfStale(); // re-manda la configuración a la hoja si ya pasó un día
 pintarAvisoSync();
-
-// Botón de la franja roja: vuelve a intentar los que están atascados.
 (function(){
-  const b = document.getElementById('syncAvisoBtn');
-  if(b) b.addEventListener('click', () => {
-    showToast('Reintentando...');
-    flushSheetsQueue();
-    setTimeout(() => {
-      const n = loadSheetsQueue().length;
-      showToast(n === 0 ? 'Listo, ya llegaron' : 'Siguen sin llegar: revisa la clave');
-      pintarAvisoSync();
-    }, 2500);
-  });
+  const est = leerSyncEstado();
+  const hace = est.cuando ? Date.now() - est.cuando : Infinity;
+  // Si hace rato que no se confirma nada, se pregunta al servidor con el tipo
+  // que no existe: si la clave quedó vieja, aparece el "!" ANTES de que se
+  // pierda un gasto, no después.
+  if(hace > 12 * 60 * 60 * 1000) setTimeout(() => { probarConexionSheets(); }, 4000);
 })();
+// Al abrir ⚙️ se ve el estado actualizado.
+document.getElementById('gearBtn').addEventListener('click', pintarAvisoSync);
+
+// (La franja roja de la pantalla principal se quitó el 17-oct-2026: ahora el aviso es el "!" del engranaje.)
 
 /* ---------- ⚙️ > Conexión con el dashboard ----------
  * Botones de verdad para lo que antes pedía escribir #clave o #reenviar en la
@@ -5417,8 +5451,12 @@ function probarConexionSheets(){
     body: cuerpoApi({type: 'probarConexion'})
   }).then(r => r.text()).then(txt => {
     let resp = null; try{ resp = JSON.parse(txt); }catch(e){}
-    if(resp && resp.error === 'clave') return 'clave';
-    if(resp) return 'ok';
+    if(resp && resp.error === 'clave'){ marcarSyncError('clave'); return 'clave'; }
+    if(resp){
+      // La clave está bien. Si no hay nada trabado, se borra cualquier error viejo.
+      if(loadSheetsQueue().length === 0 || leerSyncEstado().motivo === 'clave') marcarSyncOk();
+      return 'ok';
+    }
     return 'raro';
   }).catch(() => 'sin-red');
 }
@@ -5464,6 +5502,7 @@ function probarYMostrar(){
       marcarSyncOk(); // borra un error viejo para que no corte el envío al toque
       const n = reenviarGastosDesde(desde);
       if(n === 0){ syncEstadoPintar('No hay gastos desde esa fecha para reenviar.', 'ok'); return; }
+      syncEstadoOcupado = true;
       syncEstadoPintar('Enviando ' + n + ' gastos... no cierres la app.', '');
       const total = n;
       const inicio = Date.now();
@@ -5471,14 +5510,14 @@ function probarYMostrar(){
         const quedan = loadSheetsQueue().length;
         const est = leerSyncEstado();
         if(quedan === 0){
-          clearInterval(tic);
+          clearInterval(tic); syncEstadoOcupado = false;
           syncEstadoPintar('✅ Listo: llegaron los ' + total + ' gastos al dashboard.', 'ok');
           pintarAvisoSync();
         } else if(est.ok === false){
-          clearInterval(tic);
+          clearInterval(tic); syncEstadoOcupado = false;
           syncEstadoPintar('❌ Se cortó con ' + quedan + ' sin enviar (' + (est.motivo === 'clave' ? 'la clave no coincide' : 'el servidor los rechazó') + '). Avísale a Claude.', 'mal');
         } else if(Date.now() - inicio > 180000){
-          clearInterval(tic);
+          clearInterval(tic); syncEstadoOcupado = false;
           syncEstadoPintar('Van ' + (total - quedan) + ' de ' + total + '. Los demás se siguen enviando solos la próxima vez que abras la app.', '');
         } else {
           syncEstadoPintar('Enviando... ' + (total - quedan) + ' de ' + total + '. No cierres la app.', '');
