@@ -80,9 +80,9 @@ const SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyrBdHPotM_u
  *
  * Para escribirla: abrir la app con #clave al final de la direccion.
  *
- * OJO: estos envios van con mode:'no-cors', asi que la app NO puede leer la
- * respuesta y NO se entera si la clave esta mal. Despues de activarla, hay
- * que comprobar a mano que un gasto nuevo llegue al Sheets.
+ * Desde el 17-oct-2026 la app SI lee la respuesta del Apps Script, asi que si
+ * la clave esta mal se entera: el gasto se queda en la cola y sale una franja
+ * roja arriba. Antes iba con mode:'no-cors' y fallaba en silencio.
  */
 const CLAVE_API_KEY = 'timeless_clave_api';
 function claveApi(){
@@ -854,25 +854,110 @@ function queueDeleteForSheets(id){
 }
 
 let sheetsFlushing = false;
+
+// 17-oct-2026: ANTES esto iba con mode:'no-cors'. Una respuesta opaca SIEMPRE
+// cae en .then(), aunque el servidor haya rechazado el envío, así que el gasto
+// se borraba de la cola igual y se perdía para siempre sin un solo aviso. Pasó
+// de verdad: del 9 al 17 de octubre ni un gasto llegó al Sheets (la clave de
+// este aparato había quedado vieja) y en la app todo se veía normal.
+//
+// El /exec sí deja leer la respuesta desde otro origen (comprobado el 17-oct
+// con Content-Type text/plain, que no dispara preflight). Así que ahora se lee
+// el {ok:...} y SOLO se borra de la cola cuando el servidor confirma.
 function flushSheetsQueue(){
   if(!sheetsSyncEnabled() || sheetsFlushing) return;
   const q = loadSheetsQueue();
-  if(q.length === 0) return;
+  if(q.length === 0){ pintarAvisoSync(); return; }
   if(typeof navigator !== 'undefined' && navigator.onLine === false) return;
   sheetsFlushing = true;
   const item = q[0];
   fetch(SHEETS_WEBHOOK_URL, {
     method: 'POST',
-    mode: 'no-cors', // evita bloqueos CORS; no necesitamos leer la respuesta
+    headers: {'Content-Type': 'text/plain;charset=utf-8'},
     body: cuerpoApi(item)
-  }).then(()=>{
-    const rest = loadSheetsQueue().filter(x=> (x._qid || x.id) !== (item._qid || item.id));
-    saveSheetsQueue(rest);
+  }).then(r => r.text()).then(txt => {
+    let resp = null;
+    try{ resp = JSON.parse(txt); }catch(e){}
     sheetsFlushing = false;
-    if(rest.length > 0) flushSheetsQueue(); // sigue con el resto de pendientes
+    if(resp && resp.ok){
+      const rest = loadSheetsQueue().filter(x=> (x._qid || x.id) !== (item._qid || item.id));
+      saveSheetsQueue(rest);
+      marcarSyncOk();
+      if(rest.length > 0) flushSheetsQueue(); // sigue con el resto de pendientes
+      else pintarAvisoSync();
+      return;
+    }
+    // Rechazado: NO se borra de la cola. Se queda esperando a que se arregle
+    // la clave (o lo que sea) y se reintenta solo en el próximo arranque.
+    marcarSyncError(resp && resp.error === 'clave' ? 'clave' : 'rechazo');
   }).catch(()=>{
     sheetsFlushing = false; // sin internet: queda pendiente para el próximo intento
+    pintarAvisoSync();
   });
+}
+
+/* ---------- Aviso de "tus gastos no están llegando" ----------
+ * Si hay cosas atascadas en la cola, se ve una franja arriba. Sin esto la app
+ * no tiene forma de contarlo: el que registra un gasto ve el número subir y se
+ * va tranquilo, aunque al Sheets no haya llegado nada.
+ */
+const SYNC_ESTADO_KEY = 'timeless_sync_estado';
+function leerSyncEstado(){
+  try{ return JSON.parse(localStorage.getItem(SYNC_ESTADO_KEY)) || {}; }catch(e){ return {}; }
+}
+function guardarSyncEstado(o){
+  try{ localStorage.setItem(SYNC_ESTADO_KEY, JSON.stringify(o)); }catch(e){}
+}
+function marcarSyncOk(){
+  guardarSyncEstado({ok: true, cuando: Date.now()});
+}
+function marcarSyncError(motivo){
+  guardarSyncEstado({ok: false, motivo: motivo, cuando: Date.now()});
+  pintarAvisoSync();
+}
+function pintarAvisoSync(){
+  const caja = document.getElementById('syncAviso');
+  const txt = document.getElementById('syncAvisoText');
+  if(!caja || !txt) return;
+  const pend = loadSheetsQueue().length;
+  const est = leerSyncEstado();
+  if(pend === 0){ caja.style.display = 'none'; return; }
+  caja.style.display = 'flex';
+  txt.textContent = est.motivo === 'clave'
+    ? '⚠️ ' + pend + (pend === 1 ? ' gasto no llegó' : ' gastos no llegaron') + ' al dashboard: la clave de este aparato no coincide.'
+    : '⚠️ ' + pend + (pend === 1 ? ' gasto está' : ' gastos están') + ' esperando para llegar al dashboard.';
+}
+
+/* ---------- Reenviar lo que no llegó ----------
+ * Vuelve a poner en la cola todos los gastos desde una fecha. Es seguro
+ * repetirlos: el Apps Script busca la fila por ID y la ACTUALIZA en vez de
+ * duplicarla, así que reenviar algo que ya estaba no hace daño.
+ */
+function reenviarGastosDesde(desdeISO){
+  if(!sheetsSyncEnabled()) return 0;
+  const lista = (typeof expenses !== 'undefined' ? expenses : [])
+    .filter(e => e && e.date && String(e.date) >= desdeISO);
+  const q = loadSheetsQueue();
+  const yaEnCola = {};
+  q.forEach(x => { if(x.id) yaEnCola[x.id] = true; });
+  let n = 0;
+  lista.forEach(e => {
+    if(yaEnCola[e.id]) return;
+    const cat = catById(e.category);
+    q.push({
+      _qid: newQueueId(),
+      id: e.id,
+      date: e.date,
+      amount: e.amount,
+      category: cat ? cat.name : e.category,
+      note: e.note || ''
+    });
+    n++;
+  });
+  saveSheetsQueue(q);
+  pintarAvisoSync();
+  flushSheetsQueue();
+  return n;
 }
 
 window.addEventListener('online', flushSheetsQueue);
@@ -1333,10 +1418,15 @@ function syncCashbackToSheets(){
   }));
   fetch(SHEETS_WEBHOOK_URL, {
     method: 'POST',
-    mode: 'no-cors', // fire-and-forget, igual que el envío de gastos
+    headers: {'Content-Type': 'text/plain;charset=utf-8'},
     body: cuerpoApi({ type: 'cashbackSync', rows: rows })
-  }).then(()=>{
-    try{ localStorage.removeItem(CASHBACK_SYNC_DIRTY_KEY); }catch(e){}
+  }).then(r => r.text()).then(txt => {
+    let resp = null;
+    try{ resp = JSON.parse(txt); }catch(e){}
+    // Igual que los gastos: solo se da por enviado si el servidor lo confirma.
+    // Si no, queda marcado como pendiente y se reintenta en el próximo arranque.
+    if(resp && resp.ok){ try{ localStorage.removeItem(CASHBACK_SYNC_DIRTY_KEY); }catch(e){} }
+    else { try{ localStorage.setItem(CASHBACK_SYNC_DIRTY_KEY, '1'); }catch(e){} }
   }).catch(()=>{
     try{ localStorage.setItem(CASHBACK_SYNC_DIRTY_KEY, '1'); }catch(e){}
   });
@@ -5288,3 +5378,32 @@ loadExpenses();
 flushSheetsQueue(); // reintenta envíos a Sheets que quedaron pendientes
 flushCashbackIfDirty(); // reintenta el envío del cashback si quedó pendiente
 syncAllContextIfStale(); // re-manda la configuración a la hoja si ya pasó un día
+pintarAvisoSync();
+
+// Botón de la franja roja: vuelve a intentar los que están atascados.
+(function(){
+  const b = document.getElementById('syncAvisoBtn');
+  if(b) b.addEventListener('click', () => {
+    showToast('Reintentando...');
+    flushSheetsQueue();
+    setTimeout(() => {
+      const n = loadSheetsQueue().length;
+      showToast(n === 0 ? 'Listo, ya llegaron' : 'Siguen sin llegar: revisa la clave');
+      pintarAvisoSync();
+    }, 2500);
+  });
+})();
+
+// Abrir la app con #reenviar al final de la dirección para volver a mandar al
+// Sheets todos los gastos desde una fecha. Sirve cuando algo se perdió en el
+// camino: repetir un gasto no lo duplica, el servidor actualiza la fila por ID.
+if(typeof location !== 'undefined' && location.hash === '#reenviar'){
+  setTimeout(() => {
+    const d = prompt('Reenviar al dashboard todos los gastos desde qué fecha?\n\nEscríbela como 2026-10-09 (año-mes-día).', '2026-10-09');
+    if(!d || !/^\d{4}-\d{2}-\d{2}$/.test(d.trim())) return;
+    const n = reenviarGastosDesde(d.trim());
+    alert(n === 0
+      ? 'No había ningún gasto desde esa fecha para reenviar.'
+      : 'Se pusieron ' + n + ' gastos en cola. Deja la app abierta un minuto.\n\nSi la franja roja no desaparece, la clave de este aparato está mal.');
+  }, 400);
+}

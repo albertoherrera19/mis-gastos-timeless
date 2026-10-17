@@ -788,6 +788,17 @@ input[type="text"]::placeholder{color:var(--muted);}
   background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;
   padding:10px 12px;margin-bottom:14px;font-size:12px;font-weight:700;color:var(--bone);
 }
+/* Franja roja de "tus gastos no están llegando al dashboard". */
+.sync-aviso{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:rgba(220,60,60,.16);border:1px solid rgba(220,60,60,.55);border-radius:12px;
+  padding:10px 12px;margin-bottom:14px;font-size:12px;font-weight:700;color:var(--bone);
+  line-height:1.45;
+}
+.sync-aviso button{
+  background:none;border:none;color:var(--bone);text-decoration:underline;
+  font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;
+}
 .rem-pending-banner button{
   background:none;border:none;color:var(--bone);text-decoration:underline;
   font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;
