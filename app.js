@@ -5394,6 +5394,100 @@ pintarAvisoSync();
   });
 })();
 
+/* ---------- ⚙️ > Conexión con el dashboard ----------
+ * Botones de verdad para lo que antes pedía escribir #clave o #reenviar en la
+ * dirección: desde el acceso directo del celular no hay barra de dirección,
+ * así que eso era imposible de hacer (17-oct-2026).
+ */
+function syncEstadoPintar(texto, clase){
+  const el = document.getElementById('syncEstado');
+  if(!el) return;
+  el.textContent = texto;
+  el.className = 'sync-estado' + (clase ? ' ' + clase : '');
+}
+
+// Pregunta al servidor con un tipo que no existe: NO escribe nada en el
+// Sheets. Si la clave está mal responde {error:'clave'}; si está bien, el
+// servidor pasa el control de clave y responde "Tipo no reconocido".
+function probarConexionSheets(){
+  if(!sheetsSyncEnabled()) return Promise.resolve('sin-config');
+  return fetch(SHEETS_WEBHOOK_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+    body: cuerpoApi({type: 'probarConexion'})
+  }).then(r => r.text()).then(txt => {
+    let resp = null; try{ resp = JSON.parse(txt); }catch(e){}
+    if(resp && resp.error === 'clave') return 'clave';
+    if(resp) return 'ok';
+    return 'raro';
+  }).catch(() => 'sin-red');
+}
+
+function probarYMostrar(){
+  syncEstadoPintar('Probando...', '');
+  return probarConexionSheets().then(res => {
+    const pend = loadSheetsQueue().length;
+    if(res === 'ok'){
+      syncEstadoPintar('✅ Conectado: la clave de este aparato está bien.' +
+        (pend ? ' Hay ' + pend + ' esperando para enviarse.' : ''), 'ok');
+      if(pend) flushSheetsQueue();
+    } else if(res === 'clave'){
+      syncEstadoPintar('❌ La clave de este aparato NO coincide. Tus gastos no están llegando al dashboard. Toca "Cambiar clave" y escribe la del bloc de notas.', 'mal');
+    } else if(res === 'sin-red'){
+      syncEstadoPintar('Sin internet. Vuelve a probar cuando tengas conexión.', '');
+    } else {
+      syncEstadoPintar('El servidor respondió algo raro. Avísale a Claude.', 'mal');
+    }
+    return res;
+  });
+}
+
+(function(){
+  const bProbar = document.getElementById('syncProbarBtn');
+  const bClave = document.getElementById('syncClaveBtn');
+  const bReenviar = document.getElementById('syncReenviarBtn');
+  if(bProbar) bProbar.addEventListener('click', probarYMostrar);
+
+  if(bClave) bClave.addEventListener('click', () => {
+    const v = prompt('Escribe la clave de Timeless (la del bloc de notas):', '');
+    if(v === null || !String(v).trim()) return;
+    try{ localStorage.setItem(CLAVE_API_KEY, String(v).trim()); }catch(e){}
+    probarYMostrar();
+  });
+
+  if(bReenviar) bReenviar.addEventListener('click', () => {
+    const desde = (document.getElementById('syncDesde') || {}).value || '';
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(desde)){ showToast('Elige una fecha'); return; }
+    // Primero se comprueba la clave: con la clave mala, reenviar no serviría.
+    probarYMostrar().then(res => {
+      if(res !== 'ok') return;
+      marcarSyncOk(); // borra un error viejo para que no corte el envío al toque
+      const n = reenviarGastosDesde(desde);
+      if(n === 0){ syncEstadoPintar('No hay gastos desde esa fecha para reenviar.', 'ok'); return; }
+      syncEstadoPintar('Enviando ' + n + ' gastos... no cierres la app.', '');
+      const total = n;
+      const inicio = Date.now();
+      const tic = setInterval(() => {
+        const quedan = loadSheetsQueue().length;
+        const est = leerSyncEstado();
+        if(quedan === 0){
+          clearInterval(tic);
+          syncEstadoPintar('✅ Listo: llegaron los ' + total + ' gastos al dashboard.', 'ok');
+          pintarAvisoSync();
+        } else if(est.ok === false){
+          clearInterval(tic);
+          syncEstadoPintar('❌ Se cortó con ' + quedan + ' sin enviar (' + (est.motivo === 'clave' ? 'la clave no coincide' : 'el servidor los rechazó') + '). Avísale a Claude.', 'mal');
+        } else if(Date.now() - inicio > 180000){
+          clearInterval(tic);
+          syncEstadoPintar('Van ' + (total - quedan) + ' de ' + total + '. Los demás se siguen enviando solos la próxima vez que abras la app.', '');
+        } else {
+          syncEstadoPintar('Enviando... ' + (total - quedan) + ' de ' + total + '. No cierres la app.', '');
+        }
+      }, 1000);
+    });
+  });
+})();
+
 // Abrir la app con #reenviar al final de la dirección para volver a mandar al
 // Sheets todos los gastos desde una fecha. Sirve cuando algo se perdió en el
 // camino: repetir un gasto no lo duplica, el servidor actualiza la fila por ID.

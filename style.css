@@ -788,6 +788,13 @@ input[type="text"]::placeholder{color:var(--muted);}
   background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;
   padding:10px 12px;margin-bottom:14px;font-size:12px;font-weight:700;color:var(--bone);
 }
+.sync-estado{
+  font-size:12px;line-height:1.5;color:var(--bone);font-weight:600;
+  padding:8px 10px;margin-bottom:8px;border-radius:10px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+}
+.sync-estado.ok{border-color:rgba(80,190,120,.6);background:rgba(80,190,120,.12);}
+.sync-estado.mal{border-color:rgba(220,60,60,.6);background:rgba(220,60,60,.14);}
 /* Franja roja de "tus gastos no están llegando al dashboard". */
 .sync-aviso{
   display:flex;align-items:center;justify-content:space-between;gap:10px;

@@ -97,6 +97,22 @@
   <div class="backup-hint">
     <div class="backup-hint-row">Si lo ocultas, la barrita deja de ocupar espacio en la pantalla principal y queda solo un botoncito 🙈 para volver a mostrarla (también puedes usar el ojo de la propia barrita).</div>
   </div>
+  <div class="title backup-title">Conexión con el dashboard</div>
+  <div class="sync-estado" id="syncEstado">Toca "Probar conexión" para ver si tus gastos están llegando.</div>
+  <div class="backup-row">
+    <button class="backup-btn" id="syncProbarBtn" type="button">🔌 Probar conexión</button>
+    <button class="backup-btn" id="syncClaveBtn" type="button">🔑 Cambiar clave</button>
+  </div>
+  <div class="pref-row">
+    <span class="pref-label">Reenviar gastos desde</span>
+    <input type="date" id="syncDesde" class="date-input" value="2026-10-09">
+  </div>
+  <div class="backup-row">
+    <button class="backup-btn" id="syncReenviarBtn" type="button">🔁 Reenviar al dashboard</button>
+  </div>
+  <div class="backup-hint">
+    <div class="backup-hint-row"><b>Reenviar</b> vuelve a mandar todos tus gastos desde esa fecha. No se duplica nada: si un gasto ya estaba en el dashboard, solo se actualiza.</div>
+  </div>
 </div>
 
 <div class="add-card">
